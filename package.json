@@ -15,7 +15,8 @@
   "license": "ISC",
   "dependencies": {
     "commander": "^8.0.0",
+    "log4js": "^6.3.0",
     "uuid": "^8.3.2",
-    "ws": "2.3.x"
+    "ws": "^7.5.3"
   }
 }
