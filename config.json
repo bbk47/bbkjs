@@ -3,8 +3,8 @@
     "localPort": 1080,
     "serverAddress": "127.0.0.1",
     "serverPort": 5900,
-    "tls": true,
-    "websocketUri": "/wss",
+    "tls": false,
+    "websocketUri": "/websocket",
     "password": "p@ssword",
     "method": "aes-256-cfb"
 }
