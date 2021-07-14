@@ -1,11 +1,10 @@
 {
-    "localAddress": "127.0.0.1",
-    "localPort": 1080,
-    "serverAddress": "127.0.0.1",
-    "serverPort": 5900,
-    "websocketUri": "/websocket",
-    "password": "p@ssword",
+    "listenAddr": "127.0.0.1",
+    "listenPort": 1080,
     "fillByte": 8,
     "logLevel": "info",
-    "method": "aes-256-cfb"
+    "method": "aes-256-cfb",
+    "password": "p@ssword",
+    "websocketUrl": "ws://127.0.0.1:5900/websocket",
+    "ping": true
 }
