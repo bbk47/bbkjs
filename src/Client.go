@@ -1,11 +1,15 @@
 package bbk
 
 import (
-	"encoding/binary"
-	"errors"
 	"fmt"
+	"github.com/gorilla/websocket"
 	"io"
+	"log"
 	"net"
+	"net/url"
+	"os"
+	"os/signal"
+	"time"
 )
 
 type Client struct {
@@ -19,21 +23,104 @@ type Client struct {
 	Ping         bool   `json:"ping"`
 }
 
-func (client Client) handleConnection(conn net.Conn)  {
-	if err := Socks5Auth(conn); err != nil {
-		fmt.Println("auth error:", err)
-		conn.Close()
+func (client Client) handleConnection(conn net.Conn) {
+
+	buf := make([]byte, 256)
+
+	// 读取 VER 和 NMETHODS
+	n, err := io.ReadFull(conn, buf[:2])
+	if n != 2 {
+		fmt.Println("reading header: " + err.Error())
 		return
 	}
 
-	target, err := Socks5Connect(conn)
+	ver, nMethods := int(buf[0]), int(buf[1])
+	if ver != 5 {
+		fmt.Println("invalid version")
+		return
+	}
+
+	// 读取 METHODS 列表
+	n, err = io.ReadFull(conn, buf[:nMethods])
+	if n != nMethods {
+		fmt.Println("reading methods: " + err.Error())
+		return
+	}
+	// INIT
+	//无需认证
+	n, err = conn.Write([]byte{0x05, 0x00})
+	if n != 2 || err != nil {
+		fmt.Println("write rsp : " + err.Error())
+		return
+	}
+	buf2 := make([]byte, 256)
+
+	n, err = io.ReadFull(conn, buf2[:4])
+	if n != 4 || err != nil {
+		fmt.Println("read header: " + err.Error())
+	}
+
+	// ADDR
+	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	if err != nil {
-		fmt.Println("connect error:", err)
-		conn.Close()
-		return
+		fmt.Println("write rsp: " + err.Error())
 	}
 
-	Socks5Forward(conn, target)
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+
+	u := url.URL{Scheme: "ws", Host: "127.0.0.1:5900", Path: "/websocket"}
+	log.Printf("connecting to %s", u.String())
+
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Fatal("dial:", err)
+	}
+	defer c.Close()
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+				return
+			}
+			log.Printf("recv: %s", message)
+		}
+	}()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case t := <-ticker.C:
+			err := c.WriteMessage(websocket.BinaryMessage, []byte(t.String()))
+			if err != nil {
+				log.Println("write:", err)
+				return
+			}
+		case <-interrupt:
+			log.Println("interrupt")
+
+			// Cleanly close the connection by sending a close message and then
+			// waiting (with timeout) for the server to close the connection.
+			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			if err != nil {
+				log.Println("write close:", err)
+				return
+			}
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+			}
+			return
+		}
+	}
 }
 
 func (client Client) initialize() {
@@ -53,108 +140,5 @@ func (client Client) initialize() {
 }
 
 func (client Client) Bootstrap() {
-	client.initialize();
-}
-
-
-func Socks5Auth(client net.Conn) (err error) {
-	buf := make([]byte, 256)
-
-	// 读取 VER 和 NMETHODS
-	n, err := io.ReadFull(client, buf[:2])
-	if n != 2 {
-		return errors.New("reading header: " + err.Error())
-	}
-
-	ver, nMethods := int(buf[0]), int(buf[1])
-	if ver != 5 {
-		return errors.New("invalid version")
-	}
-
-	// 读取 METHODS 列表
-	n, err = io.ReadFull(client, buf[:nMethods])
-	if n != nMethods {
-		return errors.New("reading methods: " + err.Error())
-	}
-
-	//无需认证
-	n, err = client.Write([]byte{0x05, 0x00})
-	if n != 2 || err != nil {
-		return errors.New("write rsp: " + err.Error())
-	}
-
-	return nil
-}
-
-func Socks5Connect(client net.Conn) (net.Conn, error) {
-	buf := make([]byte, 256)
-
-	n, err := io.ReadFull(client, buf[:4])
-	if n != 4 {
-		return nil, errors.New("read header: " + err.Error())
-	}
-
-	ver, cmd, _, atyp := buf[0], buf[1], buf[2], buf[3]
-	if ver != 5 || cmd != 1 {
-		return nil, errors.New("invalid ver/cmd")
-	}
-
-	addr := ""
-	switch atyp {
-	case 1:
-		n, err = io.ReadFull(client, buf[:4])
-		if n != 4 {
-			return nil, errors.New("invalid IPv4: " + err.Error())
-		}
-		addr = fmt.Sprintf("%d.%d.%d.%d", buf[0], buf[1], buf[2], buf[3])
-
-	case 3:
-		n, err = io.ReadFull(client, buf[:1])
-		if n != 1 {
-			return nil, errors.New("invalid hostname: " + err.Error())
-		}
-		addrLen := int(buf[0])
-
-		n, err = io.ReadFull(client, buf[:addrLen])
-		if n != addrLen {
-			return nil, errors.New("invalid hostname: " + err.Error())
-		}
-		addr = string(buf[:addrLen])
-
-	case 4:
-		return nil, errors.New("IPv6: no supported yet")
-
-	default:
-		return nil, errors.New("invalid atyp")
-	}
-
-	n, err = io.ReadFull(client, buf[:2])
-	if n != 2 {
-		return nil, errors.New("read port: " + err.Error())
-	}
-	port := binary.BigEndian.Uint16(buf[:2])
-
-	destAddrPort := fmt.Sprintf("%s:%d", addr, port)
-	dest, err := net.Dial("tcp", destAddrPort)
-	if err != nil {
-		return nil, errors.New("dial dst: " + err.Error())
-	}
-
-	n, err = client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-	if err != nil {
-		dest.Close()
-		return nil, errors.New("write rsp: " + err.Error())
-	}
-
-	return dest, nil
-}
-
-func Socks5Forward(client, target net.Conn) {
-	forward := func(src, dest net.Conn) {
-		defer src.Close()
-		defer dest.Close()
-		io.Copy(src, dest)
-	}
-	go forward(client, target)
-	go forward(target, client)
+	client.initialize()
 }
