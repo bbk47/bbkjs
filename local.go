@@ -5,8 +5,8 @@ import bbk "bbk/src"
 func main() {
 	client := bbk.Client{
 		ListenAddr:   "127.0.0.1",
-		ListenPort:   1090,
-		FillByte:    0,
+		ListenPort:   1080,
+		FillByte:     0,
 		LogLevel:     "info",
 		Method:       "aes-256-cfb",
 		Password:     "p@ssword",

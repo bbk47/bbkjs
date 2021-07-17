@@ -4,6 +4,7 @@ import (
 	"bbk/src/utils"
 	"fmt"
 	"github.com/gorilla/websocket"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -21,54 +22,81 @@ type Server struct {
 
 var upgrader = websocket.Upgrader{} // use default options
 
-func (server Server) onClose(c *websocket.Conn) {
-
-}
-
 func (server Server) handleConnection(w http.ResponseWriter, r *http.Request) {
-	c, err := upgrader.Upgrade(w, r, nil)
+	wsConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
 	}
-	defer server.onClose(c)
 	stage := "INIT"
 	cache := []byte{}
-	var t_socket net.Conn
+	var tSocket net.Conn
+	fmt.Println("client come!....")
+
 	for {
-		_, buf, err := c.ReadMessage()
+		_, buf, err := wsConn.ReadMessage()
 		if err != nil {
-			log.Println("read:", err)
+			log.Printf("read ws: %v\n", err)
 			break
 		}
+		log.Printf("stage=====%s\n", stage)
 		if stage == "INIT" {
 			addrInfo, err := utils.ParseAddrInfo(buf)
+			fmt.Printf("INIT...%s:%s\n", addrInfo.Addr, addrInfo.Port)
 			if err != nil {
-				log.Println("ignore...")
+				log.Println("==========================================")
 				return
 			}
 			stage = "CONNECTING"
 			destAddrPort := fmt.Sprintf("%s:%d", addrInfo.Addr, addrInfo.Port)
-			tSocket, err := net.Dial("tcp", destAddrPort)
-			t_socket = tSocket
+			tSocket, err = net.Dial("tcp", destAddrPort)
 			if err != nil {
 				return
 			}
-			defer func() {
-				stage = "DESTORYED"
-			}()
 			stage = "STREAM"
-			_, err = t_socket.Write(cache)
-			if err == nil {
-				cache = nil // clean cache
-			}
+			fmt.Println("Dial OK...")
+			go func() {
+				defer func() {
+					stage = "DESTROYED"
+					defer tSocket.Close()
+					return
+				}()
+
+				fmt.Println("====>START Transport data...")
+				for {
+					// 接收数据
+					cache := make([]byte, 1024)
+					len2, err := tSocket.Read(cache)
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						fmt.Printf("read target socket:%v\n", err)
+						return
+					}
+					// 发送数据
+					wsConn.WriteMessage(websocket.BinaryMessage, cache[:len2])
+					fmt.Printf("send ws tunnel:%v=====\n", len2)
+					if err != nil {
+						fmt.Printf("send ws tunnel:%v\n", err)
+						return
+					}
+				}
+			}()
+			log.Printf("after go=====stage=====%s\n", stage)
 		} else if stage == "CONNECTING" {
+			log.Println("append data to target cache...")
 			cache = append(cache, buf...)
 		} else if stage == "STREAM" {
-			t_socket.Write(buf)
+			log.Println("write data to target socket...")
+			_, err = tSocket.Write(buf)
+			if err != nil {
+				fmt.Printf("send target socket(stream):%v\n", err)
+			}
 		}
 
 	}
+
 }
 
 func (server Server) initialize() error {
