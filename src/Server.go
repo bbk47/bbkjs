@@ -67,7 +67,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 		targetObj := Target{}
 		targetObj.dataCache = []byte{}
 		addrInfo, err := utils.ParseAddrInfo(frame.Data)
-		fmt.Printf("REQ CONNECT==>%s:%d\n", addrInfo.Addr, addrInfo.Port)
+		log.Printf("REQ CONNECT==>%s:%d\n", addrInfo.Addr, addrInfo.Port)
 		if err != nil {
 			log.Println("==========================================")
 			return
@@ -80,7 +80,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 			destAddrPort := fmt.Sprintf("%s:%d", addrInfo.Addr, addrInfo.Port)
 			tSocket, err := net.DialTimeout("tcp", destAddrPort, time.Second*10)
 			if err != nil {
-				fmt.Println("error:%v\n", err.Error())
+				log.Println("error:%v\n", err.Error())
 				return
 			}
 			targetObj.socket = tSocket
@@ -111,7 +111,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 				}
 				//fmt.Println("====>read data target socket:", len2)
 				if err != nil {
-					fmt.Printf("read target socket:%v\n", err)
+					log.Printf("read target socket:%v\n", err)
 					rstFrame := Frame{Cid: frame.Cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
 					server.flushResponseFrame(clientWs, rstFrame)
 					return
@@ -157,7 +157,7 @@ func (server *Server) sendRespFrame(ws *websocket.Conn, frame Frame) {
 	err := ws.WriteMessage(websocket.BinaryMessage, binaryData)
 	server.wsRwLock.Unlock()
 	if err != nil {
-		fmt.Printf("send ws tunnel:%v\n", err)
+		log.Printf("send ws tunnel:%v\n", err)
 		return
 	}
 }
