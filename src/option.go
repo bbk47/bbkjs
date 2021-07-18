@@ -1,15 +1,13 @@
 package bbk
 
-
- type Option struct {
-	 ListenAddr 	string      `json:"listenAddr"`
-	 ListenPort    int         `json:"listenPort"`
-	 Password     string      `json:"password"`
-	 Method       string      `json:"method"`
-	 logLevel       string      `json:"logLevel"`
-	 websocketUrl       string      `json:"websocketUrl"`
-	 websocketPath       string      `json:"websocketPath"`
-	 fillByte       int      `json:"fillByte"`
-	 ping       bool      `json:"ping"`
- }
- 
+type Option struct {
+	ListenAddr    string `json:"listenAddr"`
+	ListenPort    int    `json:"listenPort"`
+	Password      string `json:"password"`
+	Method        string `json:"method"`
+	LogLevel      string `json:"logLevel"`
+	WebsocketUrl  string `json:"websocketUrl"`
+	WebsocketPath string `json:"websocketPath"`
+	FillByte      int    `json:"fillByte"`
+	Ping          bool   `json:"ping"`
+}

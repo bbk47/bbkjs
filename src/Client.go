@@ -8,20 +8,147 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"sync"
+	"time"
 )
 
+const (
+	WEBSOCKET_INIT       uint8 = 0x0
+	WEBSOCKET_CONNECTING uint8 = 0x1
+	WEBSOCKET_OK         uint8 = 0x2
+	WEBSOCKET_DISCONNECT uint8 = 0x3
+)
+
+const DATA_MAX_SIEZ uint16 = 1024
+
 type Client struct {
-	ListenAddr   string `json:"listenAddr"`
-	ListenPort   int    `json:"listenPort"`
-	FillByte     int    `json:"fillByte"`
-	LogLevel     string `json:"logLevel"`
-	Method       string `json:"method"`
-	Password     string `json:"password"`
-	WebsocketUrl string `json:"websocketUrl"`
-	Ping         bool   `json:"ping"`
+	opts Option
+	// inner attr
+	wsStatus         uint8
+	wsConn           *websocket.Conn
+	lastPong         uint64
+	browserSockets   map[string]net.Conn
+	wsLock           sync.Mutex
+	wsRwLock         sync.RWMutex
+	remoteFrameQueue FrameQueue
 }
 
-func (client Client) handleConnection(conn net.Conn) {
+func NewClient(opts Option) Client {
+	cli := Client{}
+	cli.opts = opts
+	cli.wsStatus = WEBSOCKET_INIT
+	cli.browserSockets = make(map[string]net.Conn)
+	cli.lastPong = uint64(time.Now().UnixNano())
+	cli.remoteFrameQueue = FrameQueue{}
+	return cli
+}
+
+func (client *Client) setupwsConnection() {
+	if client.wsStatus == WEBSOCKET_CONNECTING || client.wsStatus == WEBSOCKET_OK {
+		return
+	}
+	// setup ws connection
+	client.wsStatus = WEBSOCKET_CONNECTING
+	u := url.URL{Scheme: "ws", Host: "127.0.0.1:5900", Path: "/websocket"}
+	log.Printf("connecting websocket url: %s\n", u.String())
+	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Fatal("dial:", err)
+	}
+	client.wsStatus = WEBSOCKET_OK
+	client.wsConn = ws
+	log.Println("setup ws tunnel, start receive data ws======")
+	go func() {
+		defer func() {
+			ws.Close()
+			client.wsStatus = WEBSOCKET_DISCONNECT
+		}()
+
+		for {
+			// 接收数据
+			_, cache, err := ws.ReadMessage()
+			if err != nil {
+				fmt.Printf("read ws data:%v\n", err)
+				return
+			}
+			respFrame := Derialize(cache)
+			if respFrame.Type == PONG_FRAME {
+				log.Println("pong======")
+			} else {
+				client.flushLocalFrame(respFrame)
+			}
+
+		}
+	}()
+}
+func (client *Client) flushLocalFrame(frame Frame) {
+	// flush local Frame
+	bsocket := client.browserSockets[frame.Cid]
+	//log.Println("write browser socket data:", len(frame.Data))
+	if bsocket == nil {
+		return
+	}
+	if frame.Type == STREAM_FRAME {
+		bsocket.Write(frame.Data)
+	} else if frame.Type == FIN_FRAME {
+		bsocket.Close()
+		log.Println("FIN_FRAME======")
+	} else if frame.Type == RST_FRAME {
+		log.Println("RST_FRAME======")
+	}
+
+}
+
+func (client *Client) flushRemoteFrame(frame *Frame) {
+	queue := client.remoteFrameQueue
+	queue.Push(*frame)
+	//log.Println("flushRemoteFrame=======")
+	client.setupwsConnection()
+	if client.wsStatus != WEBSOCKET_OK {
+		return
+	}
+	for {
+		if queue.IsEmpty() {
+			return
+		}
+		frame2 := queue.Shift()
+		leng := uint16(len(frame.Data))
+		if leng < DATA_MAX_SIEZ {
+			client.sendRemoteFrame(*frame2)
+		} else {
+			var offset uint16 = 0
+			for {
+				if offset < leng {
+					frame2 := Frame{Cid: frame2.Cid, Type: frame2.Type, Data: frame2.Data[offset : offset+DATA_MAX_SIEZ]}
+					offset += DATA_MAX_SIEZ
+					client.sendRemoteFrame(frame2)
+				} else {
+					break
+				}
+			}
+
+		}
+	}
+}
+
+func (client *Client) sendRemoteFrame(frame Frame) {
+	wsConn := client.wsConn
+	if wsConn == nil {
+		log.Println("nil is wsCoon")
+	}
+	if client.wsStatus == WEBSOCKET_OK {
+		binaryData := Serialize(frame)
+		client.wsRwLock.Lock()
+		//log.Println("sendRemoteFrame====", len(frame.Data))
+		wsConn.WriteMessage(websocket.BinaryMessage, binaryData)
+		client.wsRwLock.Unlock()
+	}
+}
+
+func (client *Client) handleConnection(conn net.Conn) {
+
+	log.Println("client connection come!")
+	defer conn.Close()
 
 	buf := make([]byte, 256)
 
@@ -65,6 +192,7 @@ func (client Client) handleConnection(conn net.Conn) {
 	ver, cmd, _, atyp := int(buf[0]), buf[1], buf[2], buf[3]
 	if ver != 5 || cmd != 1 {
 		fmt.Println("invalid ver/cmd")
+		return
 	}
 	addrLen := 0
 	if atyp == 0x1 {
@@ -79,91 +207,62 @@ func (client Client) handleConnection(conn net.Conn) {
 
 	addBuf := buf[3 : addrLen+3]
 
-	// ADDR
+	// COMMAND RESP
 	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	if err != nil {
 		fmt.Println("write rsp: " + err.Error())
-	}
-	fmt.Println("START_STREAM")
-	// Normal TCP DATA
-	//interrupt := make(chan os.Signal, 1)
-	//signal.Notify(interrupt, os.Interrupt)
-
-	u := url.URL{Scheme: "ws", Host: "127.0.0.1:5900", Path: "/websocket"}
-	log.Printf("connecting to %s\n", u.String())
-
-	wsConn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		log.Fatal("dial:", err)
+		return
 	}
 
-	defer func() {
-		log.Println("exec clean connection")
-		//conn.Close()
-		//wsConn.Close()
-	}()
-
-	fmt.Println("START_FRAME")
-
-	addrinfo, err := utils.ParseAddrInfo(addBuf)
-
-	fmt.Printf("addrInfo======>%s:%s\n", addrinfo.Addr, addrinfo.Port)
-
-	wsConn.WriteMessage(websocket.BinaryMessage, addBuf)
-	fmt.Println("write addrinfo to ws tunnel...")
-	go func() {
-		cache := make([]byte, 1024)
-		for {
-			// 接收数据
-
-			log.Println("start read browser data<====")
-			leng, err := conn.Read(cache)
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				fmt.Printf("read browser data:%v\n", err)
-				return
-			}
-			// 发送数据
-			fmt.Printf("send data（%v) to ws...\n", leng)
-			wsConn.WriteMessage(websocket.BinaryMessage, cache[:leng])
-			if err != nil {
-				fmt.Printf("error=>send data to ws:%v\n", err)
-				return
-			}
-		}
-		fmt.Println("exec here..... wait conn=>ws data")
-	}()
-
-	log.Println("start receive data=======")
-	// receive data
+	cid := utils.GetUUID()
+	client.browserSockets[cid] = conn
+	startFrame := Frame{Cid: cid, Type: INIT_FRAME, Data: addBuf}
+	addrInfo, err := utils.ParseAddrInfo(addBuf)
+	log.Printf("flush start frame=====%s:%d\n", addrInfo.Addr, addrInfo.Port)
+	client.flushRemoteFrame(&startFrame)
+	cache := make([]byte, 1024)
 	for {
 		// 接收数据
-		leng2, cache, err := wsConn.ReadMessage()
-		if err != nil {
-			fmt.Printf("read ws data:%v\n", err)
+		//log.Println("start read browser data<====")
+		leng, err := conn.Read(cache)
+		if err == io.EOF {
+			// close by peer
+			//finFrame := Frame{Cid: cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
+			//client.flushRemoteFrame(&finFrame)
+			//frameQueue <- startFrame
 			return
 		}
-		// 发送数据
-		fmt.Printf("send data %v to browser..\n", leng2)
-		conn.Write(cache)
+		//log.Println("read browser data<====", leng)
 		if err != nil {
-			fmt.Printf("error=>send data to browser:%v\n", err)
+			fmt.Printf("read browser data:%v\n", err)
+			//finFrame := Frame{Cid: cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
+			//client.flushRemoteFrame(&finFrame)
 			return
 		}
+		streamFrame := Frame{Cid: cid, Type: STREAM_FRAME, Data: cache[:leng]}
+		client.flushRemoteFrame(&streamFrame)
 	}
-
-	log.Println("finish conn!")
 
 }
 
-func (client Client) initialize() {
-	server, err := net.Listen("tcp", ":1080")
+func (client *Client) keepPingWs() {
+	go func() {
+		ticker := time.Tick(time.Second * 5)
+		pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: []byte{0x1, 0x2, 0x3, 0x4}}
+		for range ticker {
+			client.sendRemoteFrame(pingFrame)
+		}
+	}()
+}
+
+func (client *Client) initialize() {
+	opt := client.opts
+	listenAddrPort := fmt.Sprintf("%s:%d", opt.ListenAddr, opt.ListenPort)
+	server, err := net.Listen("tcp", listenAddrPort)
 	if err != nil {
 		fmt.Println("Listen failed: %v\n", err)
 	}
-	fmt.Println("server listen on socks5://127.0.0.1:1090")
+	fmt.Printf("server listen on socks5://%v\n", listenAddrPort)
 	for {
 		conn, err := server.Accept()
 		if err != nil {
@@ -174,6 +273,7 @@ func (client Client) initialize() {
 	}
 }
 
-func (client Client) Bootstrap() {
+func (client *Client) Bootstrap() {
+	client.keepPingWs()
 	client.initialize()
 }
