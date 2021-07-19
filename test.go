@@ -8,7 +8,7 @@ func main() {
 
 	buf := bbk.Serialize(frame)
 
-	fmt.Printf("%v  ==== len %v\n", buf, len(buf))
+	fmt.Printf("%v  ==== len ==43? %v\n", buf, len(buf))
 
 	frame2 := bbk.Derialize(buf)
 	fmt.Printf("%v  ====\n", frame2)
