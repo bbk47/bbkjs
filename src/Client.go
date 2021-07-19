@@ -24,12 +24,14 @@ const DATA_MAX_SIEZ uint16 = 1024
 type Client struct {
 	opts Option
 	// inner attr
-	wsStatus         uint8
-	wsConn           *websocket.Conn
-	lastPong         uint64
-	browserSockets   map[string]net.Conn
-	wsLock           sync.Mutex
-	wsRwLock         sync.RWMutex
+	wsStatus       uint8           // 线程共享变量
+	wsConn         *websocket.Conn //线程共享变量
+	lastPong       uint64
+	browserSockets map[string]net.Conn //线程共享变量
+	wsLock         sync.Mutex
+	bsLock         sync.Mutex
+	//wsRwLock         sync.RWMutex
+	//stRwLock         sync.RWMutex
 	remoteFrameQueue FrameQueue
 }
 
@@ -47,13 +49,15 @@ func (client *Client) setupwsConnection() {
 	if client.wsStatus == WEBSOCKET_CONNECTING || client.wsStatus == WEBSOCKET_OK {
 		return
 	}
+	client.wsLock.Lock()
+	defer client.wsLock.Unlock()
 	// setup ws connection
 	client.wsStatus = WEBSOCKET_CONNECTING
 	u := url.URL{Scheme: "ws", Host: "127.0.0.1:5900", Path: "/websocket"}
 	log.Printf("connecting websocket url: %s\n", u.String())
 	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatal("dial:", err)
+		log.Fatal(err)
 	}
 	client.wsStatus = WEBSOCKET_OK
 	client.wsConn = ws
@@ -82,6 +86,9 @@ func (client *Client) setupwsConnection() {
 	}()
 }
 func (client *Client) flushLocalFrame(frame Frame) {
+	client.bsLock.Lock()
+
+	defer client.bsLock.Unlock()
 	// flush local Frame
 	bsocket := client.browserSockets[frame.Cid]
 	//log.Println("write browser socket data:", len(frame.Data))
@@ -92,9 +99,13 @@ func (client *Client) flushLocalFrame(frame Frame) {
 		bsocket.Write(frame.Data)
 	} else if frame.Type == FIN_FRAME {
 		bsocket.Close()
-		log.Println("FIN_FRAME======")
+		log.Println("FIN_FRAME===close browser socket.")
 	} else if frame.Type == RST_FRAME {
-		log.Println("RST_FRAME======")
+		log.Println("RST_FRAME===close browser socket.")
+		bsocket.Close()
+	} else if frame.Type == EST_FRAME {
+		estAddrInfo, _ := utils.ParseAddrInfo(frame.Data)
+		log.Printf("EST_FRAME connect %s:%d success.\n", estAddrInfo.Addr, estAddrInfo.Port)
 	}
 
 }
@@ -134,20 +145,20 @@ func (client *Client) flushRemoteFrame(frame *Frame) {
 func (client *Client) sendRemoteFrame(frame Frame) {
 	wsConn := client.wsConn
 	if wsConn == nil {
-		log.Println("nil is wsCoon")
+		log.Println("wsConn is nil: status=", client.wsStatus)
 	}
 	if client.wsStatus == WEBSOCKET_OK {
 		binaryData := Serialize(frame)
-		client.wsRwLock.Lock()
+		client.wsLock.Lock()
 		//log.Println("sendRemoteFrame====", len(frame.Data))
 		wsConn.WriteMessage(websocket.BinaryMessage, binaryData)
-		client.wsRwLock.Unlock()
+		client.wsLock.Unlock()
 	}
 }
 
 func (client *Client) handleConnection(conn net.Conn) {
 
-	log.Println("client connection come!")
+	//log.Println("client connection come!")
 	defer conn.Close()
 
 	buf := make([]byte, 256)
@@ -171,7 +182,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 		log.Println("reading methods: " + err.Error())
 		return
 	}
-	log.Println("INIT===")
+	log.Println("SOCKS5[INIT]===")
 	// INIT
 	//无需认证
 	n, err = conn.Write([]byte{0x05, 0x00})
@@ -179,10 +190,9 @@ func (client *Client) handleConnection(conn net.Conn) {
 		log.Println("write rsp : " + err.Error())
 		return
 	}
-	log.Println("COMMAND===")
+
 	//119 119 119 46 103 111 111 103 108 101 46 99 111 109 1 187
 
-	// 读取 METHODS 列表
 	n, err = io.ReadFull(conn, buf[:4])
 	if n != 4 {
 		log.Println("protol error: " + err.Error())
@@ -207,6 +217,9 @@ func (client *Client) handleConnection(conn net.Conn) {
 
 	addBuf := buf[3 : addrLen+3]
 
+	addrInfo, err := utils.ParseAddrInfo(addBuf)
+	log.Printf("SOCKS5[COMMAND]===%s:%d\n", addrInfo.Addr, addrInfo.Port)
+
 	// COMMAND RESP
 	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	if err != nil {
@@ -215,10 +228,13 @@ func (client *Client) handleConnection(conn net.Conn) {
 	}
 
 	cid := utils.GetUUID()
+
+	client.bsLock.Lock()
 	client.browserSockets[cid] = conn
+	client.bsLock.Unlock()
+
 	startFrame := Frame{Cid: cid, Type: INIT_FRAME, Data: addBuf}
-	addrInfo, err := utils.ParseAddrInfo(addBuf)
-	log.Printf("flush start frame=====%s:%d\n", addrInfo.Addr, addrInfo.Port)
+
 	client.flushRemoteFrame(&startFrame)
 	cache := make([]byte, 1024)
 	for {
@@ -226,17 +242,16 @@ func (client *Client) handleConnection(conn net.Conn) {
 		//log.Println("start read browser data<====")
 		leng, err := conn.Read(cache)
 		if err == io.EOF {
-			// close by peer
+			// close by browser peer
 			//finFrame := Frame{Cid: cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
 			//client.flushRemoteFrame(&finFrame)
-			//frameQueue <- startFrame
 			return
 		}
 		//log.Println("read browser data<====", leng)
 		if err != nil {
 			log.Printf("read browser data:%v\n", err)
-			//finFrame := Frame{Cid: cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
-			//client.flushRemoteFrame(&finFrame)
+			rstFrame := Frame{Cid: cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
+			client.flushRemoteFrame(&rstFrame)
 			return
 		}
 		streamFrame := Frame{Cid: cid, Type: STREAM_FRAME, Data: cache[:leng]}

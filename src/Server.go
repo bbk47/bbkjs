@@ -16,6 +16,9 @@ var upgrader = websocket.Upgrader{} // use default options
 
 const DATA_MAX_SIZE uint16 = 1024
 
+const CONNECT_TIMEOUT = time.Second * 10
+const IO_RW_TIMEOUT = time.Second * 5
+
 type Target struct {
 	dataCache []byte
 	status    string
@@ -25,8 +28,8 @@ type Target struct {
 type Server struct {
 	opts          Option
 	targetSockets map[string]*Target
-	wsRwLock      sync.RWMutex
-	rwLock2       sync.RWMutex
+	wsLock        sync.Mutex
+	tsLock        sync.Mutex
 }
 
 func NewServer(opt Option) Server {
@@ -73,12 +76,12 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 			return
 		}
 		targetObj.status = "connecting"
-
+		server.tsLock.Lock()
+		server.targetSockets[frame.Cid] = &targetObj
+		server.tsLock.Unlock()
 		go func() {
-
-			server.targetSockets[frame.Cid] = &targetObj
 			destAddrPort := fmt.Sprintf("%s:%d", addrInfo.Addr, addrInfo.Port)
-			tSocket, err := net.DialTimeout("tcp", destAddrPort, time.Second*10)
+			tSocket, err := net.DialTimeout("tcp", destAddrPort, CONNECT_TIMEOUT)
 			if err != nil {
 				log.Println("error:%v\n", err.Error())
 				return
@@ -86,25 +89,25 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 			targetObj.socket = tSocket
 			targetObj.status = "connected"
 
+			estFrame := Frame{Cid: frame.Cid, Type: EST_FRAME, Data: frame.Data}
+			server.flushResponseFrame(clientWs, estFrame)
+
 			defer func() {
 				targetObj.status = "destoryed"
 				tSocket.Close()
 			}()
 
-			tSocket.Write(targetObj.dataCache)
-
+			server.safeWriteSocket(&tSocket, targetObj.dataCache)
+			targetObj.dataCache = nil
 			log.Printf("connect %s success.\n", destAddrPort)
 
 			for {
 				//fmt.Println("====>check data from target...")
 				// 接收数据
 				cache := make([]byte, 1024)
-				server.rwLock2.RLock()
 				len2, err := tSocket.Read(cache)
-				server.rwLock2.RUnlock()
 				if err == io.EOF {
-					log.Println("eof read from target socket!")
-					// close by target peer
+					// eof read from target socket, close by target peer
 					finFrame := Frame{Cid: frame.Cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
 					server.flushResponseFrame(clientWs, finFrame)
 					return
@@ -134,7 +137,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 		}
 		if targetObj.status == "connected" {
 			//log.Println("STREAM_FRAME_connected write=====")
-			targetObj.socket.Write(frame.Data)
+			server.safeWriteSocket(&targetObj.socket, frame.Data)
 		}
 
 	} else if frame.Type == FIN_FRAME {
@@ -143,19 +146,31 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 		if targetObj == nil {
 			return
 		}
-
+		if targetObj.socket == nil {
+			return
+		}
 		targetObj.socket.Close()
 		targetObj.socket = nil
 	}
+}
+
+func (server *Server) safeWriteSocket(socket *net.Conn, data []byte) {
+	if socket == nil {
+		return
+	}
+	server.tsLock.Lock()
+	defer server.tsLock.Unlock()
+	conn := *socket
+	conn.Write(data)
 }
 
 func (server *Server) sendRespFrame(ws *websocket.Conn, frame Frame) {
 	// 发送数据
 	binaryData := Serialize(frame)
 	//log.Println("sendRespFrame====", len(frame.Data))
-	server.wsRwLock.Lock()
+	server.wsLock.Lock()
 	err := ws.WriteMessage(websocket.BinaryMessage, binaryData)
-	server.wsRwLock.Unlock()
+	server.wsLock.Unlock()
 	if err != nil {
 		log.Printf("send ws tunnel:%v\n", err)
 		return
@@ -171,7 +186,7 @@ func (server *Server) flushResponseFrame(ws *websocket.Conn, frame Frame) {
 		var offset uint16 = 0
 		for {
 			if offset < leng {
-				lastOff := offset + DATA_MAX_SIEZ
+				lastOff := offset + DATA_MAX_SIZE
 				last := lastOff
 				if lastOff > leng {
 					last = leng
