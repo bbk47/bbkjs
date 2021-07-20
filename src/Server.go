@@ -30,12 +30,20 @@ type Server struct {
 	targetSockets map[string]*Target
 	wsLock        sync.Mutex
 	tsLock        sync.Mutex
+
+	serizer *Serializer
 }
 
 func NewServer(opt Option) Server {
 	s := Server{}
 	s.opts = opt
 	s.targetSockets = make(map[string]*Target)
+	serizer, err := NewSerializer(opt.Method, opt.Password, opt.FillByte)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	s.serizer = serizer
+
 	return s
 }
 
@@ -53,10 +61,13 @@ func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		//log.Println("websocket client message come=====")
+		buf, err = server.serizer.ExecDecrypt(buf)
 		frame := Derialize(buf)
 		if frame.Type == PING_FRAME {
 			log.Println("ping==========")
-			pongFrame := Frame{Cid: "00000000000000000000000000000000", Type: PONG_FRAME, Data: []byte{0x1, 0x2, 0x3, 0x4}}
+			timebs := utils.GetNowInt64Bytes()
+			data := append(frame.Data, timebs...)
+			pongFrame := Frame{Cid: "00000000000000000000000000000000", Type: PONG_FRAME, Data: data}
 			server.flushResponseFrame(wsConn, pongFrame)
 		} else {
 			server.dispatchRequest(wsConn, frame)
@@ -167,6 +178,7 @@ func (server *Server) safeWriteSocket(socket *net.Conn, data []byte) {
 func (server *Server) sendRespFrame(ws *websocket.Conn, frame Frame) {
 	// 发送数据
 	binaryData := Serialize(frame)
+	binaryData = server.serizer.ExecEncrypt(binaryData)
 	//log.Println("sendRespFrame====", len(frame.Data))
 	server.wsLock.Lock()
 	err := ws.WriteMessage(websocket.BinaryMessage, binaryData)

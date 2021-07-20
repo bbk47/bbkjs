@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -23,6 +24,8 @@ const DATA_MAX_SIEZ uint16 = 1024
 
 type Client struct {
 	opts Option
+
+	serizer *Serializer
 	// inner attr
 	wsStatus       uint8           // 线程共享变量
 	wsConn         *websocket.Conn //线程共享变量
@@ -42,6 +45,14 @@ func NewClient(opts Option) Client {
 	cli.browserSockets = make(map[string]net.Conn)
 	cli.lastPong = uint64(time.Now().UnixNano())
 	cli.remoteFrameQueue = FrameQueue{}
+	log.Println(opts.Method)
+	log.Println(opts.Password)
+	log.Println(opts.FillByte)
+	serizer, err := NewSerializer(opts.Method, opts.Password, opts.FillByte)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	cli.serizer = serizer
 	return cli
 }
 
@@ -75,9 +86,27 @@ func (client *Client) setupwsConnection() {
 				log.Printf("read ws data:%v\n", err)
 				return
 			}
+			cache, err = client.serizer.ExecDecrypt(cache)
+			if err != nil {
+				log.Fatal("read ws data:%v\n", err)
+			}
 			respFrame := Derialize(cache)
 			if respFrame.Type == PONG_FRAME {
 				log.Println("pong======")
+				stByte := respFrame.Data[:13]
+				atByte := respFrame.Data[13:26]
+				nowst := time.Now().UnixNano() / 1e6
+				st, err := strconv.Atoi(string(stByte))
+				if err != nil {
+					log.Println("invalid ping pong format")
+					continue
+				}
+				at, err := strconv.Atoi(string(atByte))
+				if err != nil {
+					log.Println("invalid ping pong format")
+					continue
+				}
+				log.Printf("ws connection health！ up:%dms, down:%dms", at-st, nowst-int64(at))
 			} else {
 				client.flushLocalFrame(respFrame)
 			}
@@ -149,6 +178,7 @@ func (client *Client) sendRemoteFrame(frame Frame) {
 	}
 	if client.wsStatus == WEBSOCKET_OK {
 		binaryData := Serialize(frame)
+		binaryData = client.serizer.ExecEncrypt(binaryData)
 		client.wsLock.Lock()
 		//log.Println("sendRemoteFrame====", len(frame.Data))
 		wsConn.WriteMessage(websocket.BinaryMessage, binaryData)
@@ -263,7 +293,8 @@ func (client *Client) handleConnection(conn net.Conn) {
 func (client *Client) keepPingWs() {
 	go func() {
 		ticker := time.Tick(time.Second * 5)
-		pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: []byte{0x1, 0x2, 0x3, 0x4}}
+		data := utils.GetNowInt64Bytes()
+		pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
 		for range ticker {
 			client.sendRemoteFrame(pingFrame)
 		}
