@@ -42,6 +42,7 @@ func main() {
 	timest := time.Now().UnixNano() / 1e6
 	tstr := fmt.Sprintf("%v", timest)
 	log.Println(tstr)
+
 	// let result = serialize(payload);
 	// console.log(result);
 	// let parseObj = derialize(result);

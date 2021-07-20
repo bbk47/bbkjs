@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -45,9 +44,6 @@ func NewClient(opts Option) Client {
 	cli.browserSockets = make(map[string]net.Conn)
 	cli.lastPong = uint64(time.Now().UnixNano())
 	cli.remoteFrameQueue = FrameQueue{}
-	log.Println(opts.Method)
-	log.Println(opts.Password)
-	log.Println(opts.FillByte)
 	serizer, err := NewSerializer(opts.Method, opts.Password, opts.FillByte)
 	if err != nil {
 		log.Fatalln(err)
@@ -64,9 +60,9 @@ func (client *Client) setupwsConnection() {
 	defer client.wsLock.Unlock()
 	// setup ws connection
 	client.wsStatus = WEBSOCKET_CONNECTING
-	u := url.URL{Scheme: "ws", Host: "127.0.0.1:5900", Path: "/websocket"}
-	log.Printf("connecting websocket url: %s\n", u.String())
-	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	wsUrl := client.opts.WebsocketUrl
+	log.Printf("connecting websocket url: %s\n", wsUrl)
+	ws, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,7 +102,7 @@ func (client *Client) setupwsConnection() {
 					log.Println("invalid ping pong format")
 					continue
 				}
-				log.Printf("ws connection health！ up:%dms, down:%dms", at-st, nowst-int64(at))
+				log.Printf("ws connection health！ up:%dms, down:%dms", int64((at))-int64(st), nowst-int64(at))
 			} else {
 				client.flushLocalFrame(respFrame)
 			}
@@ -293,9 +289,9 @@ func (client *Client) handleConnection(conn net.Conn) {
 func (client *Client) keepPingWs() {
 	go func() {
 		ticker := time.Tick(time.Second * 5)
-		data := utils.GetNowInt64Bytes()
-		pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
 		for range ticker {
+			data := utils.GetNowInt64Bytes()
+			pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
 			client.sendRemoteFrame(pingFrame)
 		}
 	}()
@@ -306,7 +302,7 @@ func (client *Client) initialize() {
 	listenAddrPort := fmt.Sprintf("%s:%d", opt.ListenAddr, opt.ListenPort)
 	server, err := net.Listen("tcp", listenAddrPort)
 	if err != nil {
-		log.Println("Listen failed: %v\n", err)
+		log.Fatalf("Listen failed: %v\n", err)
 	}
 	log.Printf("server listen on socks5://%v\n", listenAddrPort)
 	for {

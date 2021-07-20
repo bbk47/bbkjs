@@ -1,6 +1,7 @@
 package bbk
 
 type Option struct {
+	Mode          string `json:"mode"`
 	ListenAddr    string `json:"listenAddr"`
 	ListenPort    int    `json:"listenPort"`
 	Password      string `json:"password"`
