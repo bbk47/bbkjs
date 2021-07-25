@@ -82,6 +82,27 @@ func getLevel(level string) int {
 	}
 }
 
+func (l *Logger) GetColourText(ltype int, formatText string) string {
+	ret := ""
+	switch ltype {
+	case Trace:
+		ret = fmt.Sprintf("\x1b[37m[T] %s- \x1b[0m", l.label)
+	case Debug:
+		ret = fmt.Sprintf("\x1b[35m[D] %s- \x1b[0m", l.label)
+	case Info:
+		ret = fmt.Sprintf("\x1b[32m[I] %s- \x1b[0m", l.label)
+	case Warn:
+		ret = fmt.Sprintf("\x1b[33m[W] %s- \x1b[0m", l.label)
+	case Error:
+		ret = fmt.Sprintf("\x1b[31m[E] %s- \x1b[0m", l.label)
+	case Fatal:
+		ret = fmt.Sprintf("\x1b[31m[F] %s- \x1b[0m", l.label)
+	default:
+		ret = formatText
+	}
+	return ret
+}
+
 // SetLevel sets the logging level of a logger.
 func (l *Logger) SetLevel(level string) {
 	l.level = getLevel(level)
@@ -108,7 +129,7 @@ func (l *Logger) Trace(v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("T %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Trace, l.label))
 	l.logger.Output(callDep, fmt.Sprint(v...))
 }
 
@@ -118,7 +139,7 @@ func (l *Logger) Tracef(format string, v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("T %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Trace, l.label))
 	l.logger.Output(callDep, fmt.Sprintf(format, v...))
 }
 
@@ -128,7 +149,7 @@ func (l *Logger) Debug(v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("D %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Debug, l.label))
 	l.logger.Output(callDep, fmt.Sprint(v...))
 }
 
@@ -138,7 +159,7 @@ func (l *Logger) Debugf(format string, v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("D %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Debug, l.label))
 	l.logger.Output(callDep, fmt.Sprintf(format, v...))
 }
 
@@ -148,7 +169,7 @@ func (l *Logger) Info(v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("I %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Info, l.label))
 	l.logger.Output(callDep, fmt.Sprint(v...))
 }
 
@@ -158,7 +179,7 @@ func (l *Logger) Infof(format string, v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("I %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Info, l.label))
 	l.logger.Output(callDep, fmt.Sprintf(format, v...))
 }
 
@@ -168,7 +189,7 @@ func (l *Logger) Warn(v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("W %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Warn, l.label))
 	l.logger.Output(callDep, fmt.Sprint(v...))
 }
 
@@ -178,7 +199,7 @@ func (l *Logger) Warnf(format string, v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("W %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Warn, l.label))
 	l.logger.Output(callDep, fmt.Sprintf(format, v...))
 }
 
@@ -188,7 +209,7 @@ func (l *Logger) Error(v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("E %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Error, l.label))
 	l.logger.Output(callDep, fmt.Sprint(v...))
 }
 
@@ -198,7 +219,7 @@ func (l *Logger) Errorf(format string, v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("E %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Error, l.label))
 	l.logger.Output(callDep, fmt.Sprintf(format, v...))
 }
 
@@ -208,7 +229,7 @@ func (l *Logger) Fatal(v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("F %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Fatal, l.label))
 	l.logger.Output(callDep, fmt.Sprint(v...))
 	os.Exit(1)
 }
@@ -219,7 +240,7 @@ func (l *Logger) Fatalf(format string, v ...interface{}) {
 		return
 	}
 
-	l.logger.SetPrefix(fmt.Sprintf("F %s- ", l.label))
+	l.logger.SetPrefix(l.GetColourText(Fatal, l.label))
 	l.logger.Output(callDep, fmt.Sprintf(format, v...))
 	os.Exit(1)
 }

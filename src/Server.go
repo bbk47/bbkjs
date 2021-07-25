@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -25,13 +26,14 @@ type Target struct {
 }
 
 type Server struct {
-	opts       Option
+	opts    Option
+	logger  *utils.Logger
+	serizer *Serializer
+
 	targetDict map[string]*Target
 	wsLock     sync.Mutex
 	tsLock     sync.Mutex
 	mpLock     sync.Mutex
-
-	serizer *Serializer
 }
 
 func NewServer(opt Option) Server {
@@ -50,20 +52,19 @@ func NewServer(opt Option) Server {
 func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 	wsConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Print("upgrade:", err)
+		server.logger.Errorf("upgrade:%v\n", err)
 		return
 	}
 	for {
 		//log.Println("check wesocket message=====")
 		_, buf, err := wsConn.ReadMessage()
 		if err != nil {
-			log.Printf("read ws: %v\n", err)
+			server.logger.Errorf("read ws: %v\n", err)
 			break
 		}
 		//log.Println("websocket client message come=====")
 		frame, err := server.serizer.Derialize(buf)
 		if frame.Type == PING_FRAME {
-			log.Println("ping==========")
 			timebs := utils.GetNowInt64Bytes()
 			data := append(frame.Data, timebs...)
 			pongFrame := Frame{Cid: "00000000000000000000000000000000", Type: PONG_FRAME, Data: data}
@@ -81,10 +82,10 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 		targetObj.dataCache = []byte{}
 		addrInfo, err := utils.ParseAddrInfo(frame.Data)
 		if err != nil {
-			log.Printf("protol error:%v\n", err)
+			server.logger.Errorf("protol error:%v\n", err)
 			return
 		}
-		log.Printf("REQ CONNECT==>%s:%d\n", addrInfo.Addr, addrInfo.Port)
+		server.logger.Infof("REQ CONNECT==>%s:%d\n", addrInfo.Addr, addrInfo.Port)
 		targetObj.status = "connecting"
 		server.tsLock.Lock()
 		server.targetDict[frame.Cid] = &targetObj
@@ -93,7 +94,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 			destAddrPort := fmt.Sprintf("%s:%d", addrInfo.Addr, addrInfo.Port)
 			tSocket, err := net.DialTimeout("tcp", destAddrPort, CONNECT_TIMEOUT)
 			if err != nil {
-				log.Printf("error:%v\n", err.Error())
+				server.logger.Errorf("error:%v\n", err)
 				return
 			}
 			targetObj.socket = tSocket
@@ -109,7 +110,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 
 			server.safeWriteSocket(&tSocket, targetObj.dataCache)
 			targetObj.dataCache = nil
-			log.Printf("connect %s success.\n", destAddrPort)
+			server.logger.Infof("connect %s success.\n", destAddrPort)
 
 			for {
 				//fmt.Println("====>check data from target...")
@@ -124,7 +125,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 				}
 				//fmt.Println("====>read data target socket:", len2)
 				if err != nil {
-					log.Printf("read target socket:%v\n", err)
+					server.logger.Errorf("read target socket:%v\n", err)
 					rstFrame := Frame{Cid: frame.Cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
 					server.flushResponseFrame(clientWs, &rstFrame)
 					return
@@ -189,7 +190,7 @@ func (server *Server) sendRespFrame(ws *websocket.Conn, frame *Frame) {
 	err := ws.WriteMessage(websocket.BinaryMessage, binaryData)
 	server.wsLock.Unlock()
 	if err != nil {
-		log.Printf("send ws tunnel:%v\n", err)
+		server.logger.Errorf("send ws tunnel:%v\n", err)
 		return
 	}
 }
@@ -217,16 +218,22 @@ func (server *Server) flushResponseFrame(ws *websocket.Conn, frame *Frame) {
 		}
 	}
 }
-func (server *Server) initialize() error {
+func (server *Server) initServer() error {
 	opt := server.opts
 	localtion := fmt.Sprintf("%s:%s", opt.ListenAddr, fmt.Sprintf("%v", opt.ListenPort))
 	http.HandleFunc(opt.WebsocketPath, server.handleConnection)
 	wsurl := fmt.Sprintf("%s%s%s", "ws://", localtion, opt.WebsocketPath)
-	log.Println("server listen on ", wsurl)
+	server.logger.Infof("server listen on %s\n", wsurl)
 	log.Fatal(http.ListenAndServe(localtion, nil))
 	return nil
 }
 
+func (server *Server) initLogger() {
+	server.logger = utils.Log.NewLogger(os.Stdout, "S")
+	server.logger.SetLevel(server.opts.LogLevel)
+}
+
 func (server *Server) Bootstrap() {
-	server.initialize()
+	server.initLogger()
+	server.initServer()
 }

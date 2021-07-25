@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -22,8 +23,8 @@ const (
 const DATA_MAX_SIEZ uint16 = 1024
 
 type Client struct {
-	opts Option
-
+	opts    Option
+	logger  *utils.Logger
 	serizer *Serializer
 	// inner attr
 	wsStatus       uint8           // 线程共享变量
@@ -61,14 +62,14 @@ func (client *Client) setupwsConnection() {
 	// setup ws connection
 	client.wsStatus = WEBSOCKET_CONNECTING
 	wsUrl := client.opts.WebsocketUrl
-	log.Printf("connecting websocket url: %s\n", wsUrl)
+	client.logger.Infof("connecting tunnel: %s\n", wsUrl)
 	ws, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	client.wsStatus = WEBSOCKET_OK
 	client.wsConn = ws
-	log.Println("setup ws tunnel, start receive data ws======")
+	client.logger.Info("setup ws tunnel, start receive data ws======")
 	go func() {
 		defer func() {
 			ws.Close()
@@ -79,27 +80,26 @@ func (client *Client) setupwsConnection() {
 			// 接收数据
 			_, cache, err := ws.ReadMessage()
 			if err != nil {
-				log.Printf("read ws data:%v\n", err)
+				client.logger.Errorf("read ws data:%v\n", err)
 				return
 			}
 			respFrame, err := client.serizer.Derialize(cache)
 
 			if respFrame.Type == PONG_FRAME {
-				log.Println("pong======")
 				stByte := respFrame.Data[:13]
 				atByte := respFrame.Data[13:26]
 				nowst := time.Now().UnixNano() / 1e6
-				st, err := strconv.Atoi(string(stByte))
-				if err != nil {
-					log.Println("invalid ping pong format")
+				st, err1 := strconv.Atoi(string(stByte))
+				at, err2 := strconv.Atoi(string(atByte))
+
+				if err1 != nil || err2 != nil {
+					client.logger.Warn("invalid ping pong format")
 					continue
 				}
-				at, err := strconv.Atoi(string(atByte))
-				if err != nil {
-					log.Println("invalid ping pong format")
-					continue
-				}
-				log.Printf("ws connection health！ up:%dms, down:%dms", int64((at))-int64(st), nowst-int64(at))
+				upms := int64((at)) - int64(st)
+				downms := nowst - int64(at)
+
+				client.logger.Infof("ws tunnel health！ up:%dms, down:%dms, rtt:%dms", upms, downms, nowst-int64(st))
 			} else {
 				client.flushLocalFrame(respFrame)
 			}
@@ -121,13 +121,13 @@ func (client *Client) flushLocalFrame(frame *Frame) {
 		bsocket.Write(frame.Data)
 	} else if frame.Type == FIN_FRAME {
 		bsocket.Close()
-		log.Println("FIN_FRAME===close browser socket.")
+		client.logger.Info("FIN_FRAME===close browser socket.")
 	} else if frame.Type == RST_FRAME {
-		log.Println("RST_FRAME===close browser socket.")
+		client.logger.Info("RST_FRAME===close browser socket.")
 		bsocket.Close()
 	} else if frame.Type == EST_FRAME {
 		estAddrInfo, _ := utils.ParseAddrInfo(frame.Data)
-		log.Printf("EST_FRAME connect %s:%d success.\n", estAddrInfo.Addr, estAddrInfo.Port)
+		client.logger.Infof("EST_FRAME connect %s:%d success.\n", estAddrInfo.Addr, estAddrInfo.Port)
 	}
 
 }
@@ -167,7 +167,7 @@ func (client *Client) flushRemoteFrame(frame *Frame) {
 func (client *Client) sendRemoteFrame(frame *Frame) {
 	wsConn := client.wsConn
 	if wsConn == nil {
-		log.Println("wsConn is nil: status=", client.wsStatus)
+		client.logger.Infof("wsConn is nil: status=", client.wsStatus)
 	}
 	if client.wsStatus == WEBSOCKET_OK {
 		binaryData := client.serizer.Serialize(frame)
@@ -188,28 +188,28 @@ func (client *Client) handleConnection(conn net.Conn) {
 	// 读取 VER 和 NMETHODS
 	n, err := io.ReadFull(conn, buf[:2])
 	if n != 2 {
-		log.Println("reading header: " + err.Error())
+		client.logger.Errorf("reading header: %v", err)
 		return
 	}
 
 	ver, nMethods := int(buf[0]), int(buf[1])
 	if ver != 5 {
-		log.Println("invalid version")
+		client.logger.Error("invalid version")
 		return
 	}
 
 	// 读取 METHODS 列表
 	n, err = io.ReadFull(conn, buf[:nMethods])
 	if n != nMethods {
-		log.Println("reading methods: " + err.Error())
+		client.logger.Error("read socks methods error!")
 		return
 	}
-	log.Println("SOCKS5[INIT]===")
+	client.logger.Info("SOCKS5[INIT]===")
 	// INIT
 	//无需认证
 	n, err = conn.Write([]byte{0x05, 0x00})
 	if n != 2 || err != nil {
-		log.Println("write rsp : " + err.Error())
+		client.logger.Error("write rsp : " + err.Error())
 		return
 	}
 
@@ -217,13 +217,13 @@ func (client *Client) handleConnection(conn net.Conn) {
 
 	n, err = io.ReadFull(conn, buf[:4])
 	if n != 4 {
-		log.Println("protol error: " + err.Error())
+		client.logger.Error("protol error: " + err.Error())
 		return
 	}
 
 	ver, cmd, _, atyp := int(buf[0]), buf[1], buf[2], buf[3]
 	if ver != 5 || cmd != 1 {
-		log.Println("invalid ver/cmd")
+		client.logger.Error("invalid ver/cmd")
 		return
 	}
 	addrLen := 0
@@ -240,12 +240,12 @@ func (client *Client) handleConnection(conn net.Conn) {
 	addBuf := buf[3 : addrLen+3]
 
 	addrInfo, err := utils.ParseAddrInfo(addBuf)
-	log.Printf("SOCKS5[COMMAND]===%s:%d\n", addrInfo.Addr, addrInfo.Port)
+	client.logger.Infof("SOCKS5[COMMAND]===%s:%d\n", addrInfo.Addr, addrInfo.Port)
 
 	// COMMAND RESP
 	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	if err != nil {
-		log.Println("write rsp: " + err.Error())
+		client.logger.Error("write rsp: " + err.Error())
 		return
 	}
 
@@ -271,7 +271,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 		}
 		//log.Println("read browser data<====", leng)
 		if err != nil {
-			log.Printf("read browser data:%v\n", err)
+			client.logger.Errorf("read browser data:%v\n", err)
 			rstFrame := Frame{Cid: cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
 			client.flushRemoteFrame(&rstFrame)
 			return
@@ -293,25 +293,31 @@ func (client *Client) keepPingWs() {
 	}()
 }
 
-func (client *Client) initialize() {
+func (client *Client) initServer() {
 	opt := client.opts
 	listenAddrPort := fmt.Sprintf("%s:%d", opt.ListenAddr, opt.ListenPort)
 	server, err := net.Listen("tcp", listenAddrPort)
 	if err != nil {
 		log.Fatalf("Listen failed: %v\n", err)
 	}
-	log.Printf("server listen on socks5://%v\n", listenAddrPort)
+	client.logger.Infof("server listen on socks5://%v\n", listenAddrPort)
 	for {
 		conn, err := server.Accept()
 		if err != nil {
-			log.Printf("Accept failed: %v\n", err)
+			client.logger.Errorf("Accept failed: %v\n", err)
 			continue
 		}
 		go client.handleConnection(conn)
 	}
 }
 
+func (client *Client) initLogger() {
+	client.logger = utils.Log.NewLogger(os.Stdout, "L")
+	client.logger.SetLevel(client.opts.LogLevel)
+}
+
 func (client *Client) Bootstrap() {
+	client.initLogger()
 	client.keepPingWs()
-	client.initialize()
+	client.initServer()
 }
