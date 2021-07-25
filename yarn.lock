@@ -7,6 +7,11 @@ commander@^8.0.0:
   resolved "https://registry.nlark.com/commander/download/commander-8.0.0.tgz?cache=0&other_urls=https%3A%2F%2Fregistry.nlark.com%2Fcommander%2Fdownload%2Fcommander-8.0.0.tgz#1da2139548caef59bd23e66d18908dfb54b02258"
   integrity sha1-HaITlUjK71m9I+ZtGJCN+1SwIlg=
 
+date-format@^3.0.0:
+  version "3.0.0"
+  resolved "https://registry.nlark.com/date-format/download/date-format-3.0.0.tgz#eb8780365c7d2b1511078fb491e6479780f3ad95"
+  integrity sha1-64eANlx9KxURB4+0keZHl4DzrZU=
+
 safe-buffer@~5.0.1:
   version "5.0.1"
   resolved "https://registry.nlark.com/safe-buffer/download/safe-buffer-5.0.1.tgz#d263ca54696cd8a306b5ca6551e92de57918fbe7"
