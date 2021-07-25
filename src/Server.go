@@ -17,7 +17,6 @@ var upgrader = websocket.Upgrader{} // use default options
 const DATA_MAX_SIZE uint16 = 1024
 
 const CONNECT_TIMEOUT = time.Second * 10
-const IO_RW_TIMEOUT = time.Second * 5
 
 type Target struct {
 	dataCache []byte
@@ -26,10 +25,11 @@ type Target struct {
 }
 
 type Server struct {
-	opts          Option
-	targetSockets map[string]*Target
-	wsLock        sync.Mutex
-	tsLock        sync.Mutex
+	opts       Option
+	targetDict map[string]*Target
+	wsLock     sync.Mutex
+	tsLock     sync.Mutex
+	mpLock     sync.Mutex
 
 	serizer *Serializer
 }
@@ -37,7 +37,7 @@ type Server struct {
 func NewServer(opt Option) Server {
 	s := Server{}
 	s.opts = opt
-	s.targetSockets = make(map[string]*Target)
+	s.targetDict = make(map[string]*Target)
 	serizer, err := NewSerializer(opt.Method, opt.Password, opt.FillByte)
 	if err != nil {
 		log.Fatalln(err)
@@ -61,14 +61,13 @@ func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		//log.Println("websocket client message come=====")
-		buf, err = server.serizer.ExecDecrypt(buf)
-		frame := Derialize(buf)
+		frame, err := server.serizer.Derialize(buf)
 		if frame.Type == PING_FRAME {
 			log.Println("ping==========")
 			timebs := utils.GetNowInt64Bytes()
 			data := append(frame.Data, timebs...)
 			pongFrame := Frame{Cid: "00000000000000000000000000000000", Type: PONG_FRAME, Data: data}
-			server.flushResponseFrame(wsConn, pongFrame)
+			server.flushResponseFrame(wsConn, &pongFrame)
 		} else {
 			server.dispatchRequest(wsConn, frame)
 		}
@@ -76,32 +75,32 @@ func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
+func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 	if frame.Type == INIT_FRAME {
 		targetObj := Target{}
 		targetObj.dataCache = []byte{}
 		addrInfo, err := utils.ParseAddrInfo(frame.Data)
-		log.Printf("REQ CONNECT==>%s:%d\n", addrInfo.Addr, addrInfo.Port)
 		if err != nil {
-			log.Println("==========================================")
+			log.Printf("protol error:%v\n", err)
 			return
 		}
+		log.Printf("REQ CONNECT==>%s:%d\n", addrInfo.Addr, addrInfo.Port)
 		targetObj.status = "connecting"
 		server.tsLock.Lock()
-		server.targetSockets[frame.Cid] = &targetObj
+		server.targetDict[frame.Cid] = &targetObj
 		server.tsLock.Unlock()
 		go func() {
 			destAddrPort := fmt.Sprintf("%s:%d", addrInfo.Addr, addrInfo.Port)
 			tSocket, err := net.DialTimeout("tcp", destAddrPort, CONNECT_TIMEOUT)
 			if err != nil {
-				log.Println("error:%v\n", err.Error())
+				log.Printf("error:%v\n", err.Error())
 				return
 			}
 			targetObj.socket = tSocket
 			targetObj.status = "connected"
 
 			estFrame := Frame{Cid: frame.Cid, Type: EST_FRAME, Data: frame.Data}
-			server.flushResponseFrame(clientWs, estFrame)
+			server.flushResponseFrame(clientWs, &estFrame)
 
 			defer func() {
 				targetObj.status = "destoryed"
@@ -120,25 +119,25 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 				if err == io.EOF {
 					// eof read from target socket, close by target peer
 					finFrame := Frame{Cid: frame.Cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
-					server.flushResponseFrame(clientWs, finFrame)
+					server.flushResponseFrame(clientWs, &finFrame)
 					return
 				}
 				//fmt.Println("====>read data target socket:", len2)
 				if err != nil {
 					log.Printf("read target socket:%v\n", err)
 					rstFrame := Frame{Cid: frame.Cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
-					server.flushResponseFrame(clientWs, rstFrame)
+					server.flushResponseFrame(clientWs, &rstFrame)
 					return
 				}
 
 				respFrame := Frame{Cid: frame.Cid, Type: STREAM_FRAME, Data: cache[:len2]}
-				server.flushResponseFrame(clientWs, respFrame)
+				server.flushResponseFrame(clientWs, &respFrame)
 			}
 		}()
 
 	} else if frame.Type == STREAM_FRAME {
 		//log.Println("STREAM_FRAME===")
-		targetObj := server.targetSockets[frame.Cid]
+		targetObj := server.resolveTarget(frame)
 		if targetObj == nil {
 			return
 		}
@@ -153,7 +152,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 
 	} else if frame.Type == FIN_FRAME {
 		log.Println("FIN_FRAME===")
-		targetObj := server.targetSockets[frame.Cid]
+		targetObj := server.resolveTarget(frame)
 		if targetObj == nil {
 			return
 		}
@@ -163,6 +162,13 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame Frame) {
 		targetObj.socket.Close()
 		targetObj.socket = nil
 	}
+}
+
+func (server *Server) resolveTarget(frame *Frame) *Target {
+	server.mpLock.Lock()
+	defer server.mpLock.Unlock()
+	targetObj := server.targetDict[frame.Cid]
+	return targetObj
 }
 
 func (server *Server) safeWriteSocket(socket *net.Conn, data []byte) {
@@ -175,10 +181,9 @@ func (server *Server) safeWriteSocket(socket *net.Conn, data []byte) {
 	conn.Write(data)
 }
 
-func (server *Server) sendRespFrame(ws *websocket.Conn, frame Frame) {
+func (server *Server) sendRespFrame(ws *websocket.Conn, frame *Frame) {
 	// 发送数据
-	binaryData := Serialize(frame)
-	binaryData = server.serizer.ExecEncrypt(binaryData)
+	binaryData := server.serizer.Serialize(frame)
 	//log.Println("sendRespFrame====", len(frame.Data))
 	server.wsLock.Lock()
 	err := ws.WriteMessage(websocket.BinaryMessage, binaryData)
@@ -189,7 +194,7 @@ func (server *Server) sendRespFrame(ws *websocket.Conn, frame Frame) {
 	}
 }
 
-func (server *Server) flushResponseFrame(ws *websocket.Conn, frame Frame) {
+func (server *Server) flushResponseFrame(ws *websocket.Conn, frame *Frame) {
 	leng := uint16(len(frame.Data))
 
 	if leng < DATA_MAX_SIEZ {
@@ -205,7 +210,7 @@ func (server *Server) flushResponseFrame(ws *websocket.Conn, frame Frame) {
 				}
 				frame2 := Frame{Cid: frame.Cid, Type: frame.Type, Data: frame.Data[offset:last]}
 				offset = lastOff
-				server.sendRespFrame(ws, frame2)
+				server.sendRespFrame(ws, &frame2)
 			} else {
 				break
 			}

@@ -1,0 +1,14 @@
+[Unit]
+Description=bbk Service
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/bbk -c /usr/local/etc/bbk.json
+KillMode=control-group
+Restart=always
+Type=simple
+
+[Install]
+WantedBy=multi-user.target

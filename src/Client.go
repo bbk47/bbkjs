@@ -82,11 +82,8 @@ func (client *Client) setupwsConnection() {
 				log.Printf("read ws data:%v\n", err)
 				return
 			}
-			cache, err = client.serizer.ExecDecrypt(cache)
-			if err != nil {
-				log.Fatal("read ws data:%v\n", err)
-			}
-			respFrame := Derialize(cache)
+			respFrame, err := client.serizer.Derialize(cache)
+
 			if respFrame.Type == PONG_FRAME {
 				log.Println("pong======")
 				stByte := respFrame.Data[:13]
@@ -110,7 +107,7 @@ func (client *Client) setupwsConnection() {
 		}
 	}()
 }
-func (client *Client) flushLocalFrame(frame Frame) {
+func (client *Client) flushLocalFrame(frame *Frame) {
 	client.bsLock.Lock()
 
 	defer client.bsLock.Unlock()
@@ -150,14 +147,14 @@ func (client *Client) flushRemoteFrame(frame *Frame) {
 		frame2 := queue.Shift()
 		leng := uint16(len(frame.Data))
 		if leng < DATA_MAX_SIEZ {
-			client.sendRemoteFrame(*frame2)
+			client.sendRemoteFrame(frame2)
 		} else {
 			var offset uint16 = 0
 			for {
 				if offset < leng {
 					frame2 := Frame{Cid: frame2.Cid, Type: frame2.Type, Data: frame2.Data[offset : offset+DATA_MAX_SIEZ]}
 					offset += DATA_MAX_SIEZ
-					client.sendRemoteFrame(frame2)
+					client.sendRemoteFrame(&frame2)
 				} else {
 					break
 				}
@@ -167,14 +164,13 @@ func (client *Client) flushRemoteFrame(frame *Frame) {
 	}
 }
 
-func (client *Client) sendRemoteFrame(frame Frame) {
+func (client *Client) sendRemoteFrame(frame *Frame) {
 	wsConn := client.wsConn
 	if wsConn == nil {
 		log.Println("wsConn is nil: status=", client.wsStatus)
 	}
 	if client.wsStatus == WEBSOCKET_OK {
-		binaryData := Serialize(frame)
-		binaryData = client.serizer.ExecEncrypt(binaryData)
+		binaryData := client.serizer.Serialize(frame)
 		client.wsLock.Lock()
 		//log.Println("sendRemoteFrame====", len(frame.Data))
 		wsConn.WriteMessage(websocket.BinaryMessage, binaryData)
@@ -292,7 +288,7 @@ func (client *Client) keepPingWs() {
 		for range ticker {
 			data := utils.GetNowInt64Bytes()
 			pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
-			client.sendRemoteFrame(pingFrame)
+			client.sendRemoteFrame(&pingFrame)
 		}
 	}()
 }
@@ -308,7 +304,7 @@ func (client *Client) initialize() {
 	for {
 		conn, err := server.Accept()
 		if err != nil {
-			log.Println("Accept failed: %v", err)
+			log.Printf("Accept failed: %v\n", err)
 			continue
 		}
 		go client.handleConnection(conn)

@@ -1,10 +1,10 @@
 {
   "mode": "server",
   "listenAddr": "127.0.0.1",
-  "listenPort": 8000,
-  "fillByte": 0,
+  "listenPort": 5900,
+  "fillByte": 8,
   "logLevel": "info",
   "method": "aes-256-cfb",
   "password": "p@ssword123",
-  "websocketPath": "/websocket1"
+  "websocketPath": "/websocket"
 }

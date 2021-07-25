@@ -1,8 +1,9 @@
 package bbk
 
 import (
+	"bbk/src/utils"
+	"crypto/rand"
 	"sync"
-	"time"
 )
 
 const (
@@ -19,57 +20,69 @@ const (
 /**
  *
  * @param {*} frame
- * |<------32(cid)------->|<--6(timestramp)-->|<--1(type)-->|<------------data------------->|
+ * |<------32(cid)------->|<--6(rand byte)-->|<--1(type)-->|<------------data------------->|
  *
  * @returns
  */
 
 type Frame struct {
 	Cid  string
-	Time uint64
 	Type uint8
 	Data []byte
 }
 
-func WriteUnit48BE(v uint64) []byte {
-	buf := []byte{
-		byte(0xff & (v >> 40)),
-		byte(0xff & (v >> 32)),
-		byte(0xff & (v >> 24)),
-		byte(0xff & (v >> 16)),
-		byte(0xff & (v >> 8)),
-		byte(0xff & (v)),
+// get rand byte with length
+func GetRandByte(len int) []byte {
+	randbytes := make([]byte, len)
+	rand.Read(randbytes)
+	return randbytes
+}
+
+type Serializer struct {
+	fillByte  int
+	encryptor *utils.Encryptor
+}
+
+func NewSerializer(method, password string, fillBye int) (ss *Serializer, err error) {
+	encryptor, err := utils.NewEncryptor(method, password)
+	if err != nil {
+		return nil, err
 	}
-	return buf
+	ss = &Serializer{fillByte: fillBye}
+	ss.encryptor = encryptor
+	return ss, nil
 }
 
-func ReadUnit48BE(buf []byte) uint64 {
-	val := uint64(buf[5]) | uint64(buf[4])<<8 | uint64(buf[3])<<16 |
-		uint64(buf[2])<<24 | uint64(buf[1])<<32 | uint64(buf[0])<<40
-	return val
-}
+func (ss *Serializer) Serialize(frame *Frame) []byte {
+	ret1 := []byte(frame.Cid)
 
-func Serialize(frame Frame) []byte {
-	timestramp := uint64(time.Now().UnixNano() / 1e6)
-	//log.Println(timestramp)
-	timeBuf := WriteUnit48BE(timestramp)
-	cidBuf := []byte(frame.Cid)
+	if ss.fillByte > 0 {
+		randbs := GetRandByte(ss.fillByte)
+		ret1 = append(randbs, ret1...)
+	}
+
+	randBuf := GetRandByte(6)
 	typeBuf := []byte{frame.Type}
-	ret1 := append(cidBuf, timeBuf...)
-	ret2 := append(ret1, typeBuf[0])
-	ret3 := append(ret2, frame.Data...)
-	return ret3
+	ret2 := append(ret1, randBuf...)
+	ret3 := append(ret2, typeBuf[0])
+	ret4 := append(ret3, frame.Data...)
+	return ss.encryptor.Encrypt(ret4)
 }
 
-func Derialize(binaryBs []byte) Frame {
-	cid := string(binaryBs[:32])
-	timeBuf := binaryBs[32:38]
+func (ss *Serializer) Derialize(binaryBs []byte) (frame *Frame, err error) {
+	decData, err := ss.encryptor.Decrypt(binaryBs)
+	if err != nil {
+		return nil, err
+	}
+	if ss.fillByte > 0 {
+		decData = decData[ss.fillByte:]
+	}
 
-	typeVal := binaryBs[38]
-	dataBuf := binaryBs[39:]
-	timeVal := ReadUnit48BE(timeBuf)
-	frame := Frame{Cid: cid, Type: typeVal, Time: timeVal, Data: dataBuf}
-	return frame
+	cid := string(decData[:32])
+	typeVal := decData[38]
+	dataBuf := decData[39:]
+	frame1 := Frame{Cid: cid, Type: typeVal, Data: dataBuf}
+	return &frame1, nil
 }
 
 type FrameQueue struct {
