@@ -1,8 +1,8 @@
 package bbk
 
 import (
-	"bbk/src/utils"
 	"fmt"
+	"github.com/bbk47/toolbox"
 	"github.com/gorilla/websocket"
 	"io"
 	"log"
@@ -27,7 +27,7 @@ type Target struct {
 
 type Server struct {
 	opts    Option
-	logger  *utils.Logger
+	logger  *toolbox.Logger
 	serizer *Serializer
 
 	targetDict map[string]*Target
@@ -65,7 +65,7 @@ func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 		//log.Println("websocket client message come=====")
 		frame, err := server.serizer.Derialize(buf)
 		if frame.Type == PING_FRAME {
-			timebs := utils.GetNowInt64Bytes()
+			timebs := toolbox.GetNowInt64Bytes()
 			data := append(frame.Data, timebs...)
 			pongFrame := Frame{Cid: "00000000000000000000000000000000", Type: PONG_FRAME, Data: data}
 			server.flushResponseFrame(wsConn, &pongFrame)
@@ -80,7 +80,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 	if frame.Type == INIT_FRAME {
 		targetObj := Target{}
 		targetObj.dataCache = []byte{}
-		addrInfo, err := utils.ParseAddrInfo(frame.Data)
+		addrInfo, err := toolbox.ParseAddrInfo(frame.Data)
 		if err != nil {
 			server.logger.Errorf("protol error:%v\n", err)
 			return
@@ -229,7 +229,7 @@ func (server *Server) initServer() error {
 }
 
 func (server *Server) initLogger() {
-	server.logger = utils.Log.NewLogger(os.Stdout, "S")
+	server.logger = toolbox.Log.NewLogger(os.Stdout, "S")
 	server.logger.SetLevel(server.opts.LogLevel)
 }
 

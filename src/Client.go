@@ -3,6 +3,7 @@ package bbk
 import (
 	"bbk/src/utils"
 	"fmt"
+	"github.com/bbk47/toolbox"
 	"github.com/gorilla/websocket"
 	"io"
 	"log"
@@ -24,7 +25,7 @@ const DATA_MAX_SIEZ uint16 = 1024
 
 type Client struct {
 	opts    Option
-	logger  *utils.Logger
+	logger  *toolbox.Logger
 	serizer *Serializer
 	// inner attr
 	wsStatus       uint8           // 线程共享变量
@@ -126,7 +127,7 @@ func (client *Client) flushLocalFrame(frame *Frame) {
 		client.logger.Info("RST_FRAME===close browser socket.")
 		bsocket.Close()
 	} else if frame.Type == EST_FRAME {
-		estAddrInfo, _ := utils.ParseAddrInfo(frame.Data)
+		estAddrInfo, _ := toolbox.ParseAddrInfo(frame.Data)
 		client.logger.Infof("EST_FRAME connect %s:%d success.\n", estAddrInfo.Addr, estAddrInfo.Port)
 	}
 
@@ -167,7 +168,7 @@ func (client *Client) flushRemoteFrame(frame *Frame) {
 func (client *Client) sendRemoteFrame(frame *Frame) {
 	wsConn := client.wsConn
 	if wsConn == nil {
-		client.logger.Infof("wsConn is nil: status=", client.wsStatus)
+		client.logger.Infof("wsConn is nil: status=%d", client.wsStatus)
 	}
 	if client.wsStatus == WEBSOCKET_OK {
 		binaryData := client.serizer.Serialize(frame)
@@ -239,7 +240,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 
 	addBuf := buf[3 : addrLen+3]
 
-	addrInfo, err := utils.ParseAddrInfo(addBuf)
+	addrInfo, err := toolbox.ParseAddrInfo(addBuf)
 	client.logger.Infof("SOCKS5[COMMAND]===%s:%d\n", addrInfo.Addr, addrInfo.Port)
 
 	// COMMAND RESP
@@ -286,7 +287,7 @@ func (client *Client) keepPingWs() {
 	go func() {
 		ticker := time.Tick(time.Second * 5)
 		for range ticker {
-			data := utils.GetNowInt64Bytes()
+			data := toolbox.GetNowInt64Bytes()
 			pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
 			client.sendRemoteFrame(&pingFrame)
 		}
@@ -312,7 +313,7 @@ func (client *Client) initServer() {
 }
 
 func (client *Client) initLogger() {
-	client.logger = utils.Log.NewLogger(os.Stdout, "L")
+	client.logger = toolbox.Log.NewLogger(os.Stdout, "L")
 	client.logger.SetLevel(client.opts.LogLevel)
 }
 

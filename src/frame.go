@@ -1,8 +1,7 @@
 package bbk
 
 import (
-	"bbk/src/utils"
-	"crypto/rand"
+	"github.com/bbk47/toolbox"
 	"sync"
 )
 
@@ -31,20 +30,13 @@ type Frame struct {
 	Data []byte
 }
 
-// get rand byte with length
-func GetRandByte(len int) []byte {
-	randbytes := make([]byte, len)
-	rand.Read(randbytes)
-	return randbytes
-}
-
 type Serializer struct {
 	fillByte  int
-	encryptor *utils.Encryptor
+	encryptor *toolbox.Encryptor
 }
 
 func NewSerializer(method, password string, fillBye int) (ss *Serializer, err error) {
-	encryptor, err := utils.NewEncryptor(method, password)
+	encryptor, err := toolbox.NewEncryptor(method, password)
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +49,11 @@ func (ss *Serializer) Serialize(frame *Frame) []byte {
 	ret1 := []byte(frame.Cid)
 
 	if ss.fillByte > 0 {
-		randbs := GetRandByte(ss.fillByte)
+		randbs := toolbox.GetRandByte(ss.fillByte)
 		ret1 = append(randbs, ret1...)
 	}
 
-	randBuf := GetRandByte(6)
+	randBuf := toolbox.GetRandByte(6)
 	typeBuf := []byte{frame.Type}
 	ret2 := append(ret1, randBuf...)
 	ret3 := append(ret2, typeBuf[0])

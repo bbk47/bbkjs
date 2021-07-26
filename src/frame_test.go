@@ -1,8 +1,8 @@
 package bbk
 
 import (
-	"bbk/src/utils"
 	"encoding/hex"
+	"github.com/bbk47/toolbox"
 	"log"
 	"testing"
 )
@@ -12,14 +12,14 @@ func TestFrameBase(t *testing.T) {
 
 	frame1 := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d31", Type: 1, Data: []byte{0x1, 0x2, 0x3, 0x4}}
 	result := ser.Serialize(&frame1)
-	log.Println(utils.GetBytesHex(result))
+	log.Println(toolbox.GetBytesHex(result))
 
 	frame2, err := ser.Derialize(result)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if frame2.Cid != frame1.Cid || frame2.Type != frame1.Type || utils.GetBytesHex(frame2.Data) != utils.GetBytesHex(frame1.Data) {
+	if frame2.Cid != frame1.Cid || frame2.Type != frame1.Type || toolbox.GetBytesHex(frame2.Data) != toolbox.GetBytesHex(frame1.Data) {
 		t.Errorf("test derialize failed!")
 	}
 }
@@ -38,7 +38,7 @@ func TestFrameDerialize(t *testing.T) {
 		t.Error(err)
 	}
 
-	if result.Cid != frame.Cid || result.Type != frame.Type || utils.GetBytesHex(result.Data) != utils.GetBytesHex(frame.Data) {
+	if result.Cid != frame.Cid || result.Type != frame.Type || toolbox.GetBytesHex(result.Data) != toolbox.GetBytesHex(frame.Data) {
 		t.Errorf("test derialize failed!")
 	}
 }
@@ -46,7 +46,7 @@ func TestFrameDerialize(t *testing.T) {
 func TestFrameDynamicData(t *testing.T) {
 	ser, _ := NewSerializer("aes-256-cfb", "csii2019", 4)
 
-	randata := GetRandByte(20)
+	randata := toolbox.GetRandByte(20)
 	frame := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d32", Type: 1, Data: randata}
 	result := ser.Serialize(&frame)
 
@@ -55,7 +55,7 @@ func TestFrameDynamicData(t *testing.T) {
 		t.Error(err)
 	}
 
-	if frame2.Cid == frame.Cid && frame2.Type == frame.Type && utils.GetBytesHex(frame2.Data) == utils.GetBytesHex(randata) {
+	if frame2.Cid == frame.Cid && frame2.Type == frame.Type && toolbox.GetBytesHex(frame2.Data) == toolbox.GetBytesHex(randata) {
 		// success
 	} else {
 		t.Errorf("test derialize failed!")

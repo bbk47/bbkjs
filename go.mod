@@ -3,6 +3,7 @@ module bbk
 go 1.15
 
 require (
+	github.com/bbk47/toolbox v0.0.0-20210726152201-731942b68fa4
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/spf13/cobra v1.2.1
