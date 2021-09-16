@@ -1,22 +1,23 @@
 {
-  "name": "bbk",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git@gitee.com:xuxihai123/bbk.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "commander": "^8.0.0",
-    "date-format": "^3.0.0",
-    "uuid": "^8.3.2",
-    "ws": "2.3.x"
-  }
+    "name": "bbk",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "start": "node bin/server.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git@gitee.com:xuxihai123/bbk.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "commander": "^8.0.0",
+        "date-format": "^3.0.0",
+        "uuid": "^8.3.2",
+        "ws": "2.3.x"
+    }
 }
