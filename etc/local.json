@@ -1,6 +1,7 @@
 {
     "listenAddr": "127.0.0.1",
     "listenPort": 1080,
+    "listenHttpPort": 1087,
     "fillByte": 8,
     "logLevel": "info",
     "method": "aes-256-cfb",
