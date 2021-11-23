@@ -71,6 +71,7 @@ func (client *Client) setupwsConnection() {
 	client.wsStatus = WEBSOCKET_OK
 	client.wsConn = ws
 	client.logger.Info("setup ws tunnel, start receive data ws======")
+	client.flushRemoteFrame(nil)
 	go func() {
 		defer func() {
 			ws.Close()
@@ -135,7 +136,9 @@ func (client *Client) flushLocalFrame(frame *Frame) {
 
 func (client *Client) flushRemoteFrame(frame *Frame) {
 	queue := client.remoteFrameQueue
-	queue.Push(*frame)
+	if frame != nil {
+		queue.Push(*frame)
+	}
 	//log.Println("flushRemoteFrame=======")
 	client.setupwsConnection()
 	if client.wsStatus != WEBSOCKET_OK {
