@@ -1,4 +1,5 @@
 {
+    "mode":"server",
     "listenAddr": "127.0.0.1",
     "listenPort": 5900,
     "fillByte": 8,

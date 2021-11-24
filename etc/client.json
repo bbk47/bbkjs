@@ -1,6 +1,7 @@
 {
+    "mode":"client",
     "listenAddr": "127.0.0.1",
-    "listenPort": 1080,
+    "listenPort": 1090,
     "listenHttpPort": 1087,
     "fillByte": 8,
     "logLevel": "info",

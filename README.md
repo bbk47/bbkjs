@@ -6,6 +6,7 @@ bbk is a powerful tool
 
 ```json
 {
+    "mode":"server",
     "listenAddr": "127.0.0.1",
     "listenPort": 5900,
     "fillByte": 8,
@@ -17,13 +18,14 @@ bbk is a powerful tool
 ```
 
 ```sh
-node bin/server.js -c etc/server.json
+node bin/bbk.js -c etc/server.json
 ```
 
 # client
 
 ```json
 {
+    "mode":"client",
     "listenAddr": "127.0.0.1",
     "listenPort": 1080,
     "fillByte": 8,
@@ -36,7 +38,7 @@ node bin/server.js -c etc/server.json
 ```
 
 ```sh
-node bin/local.js -c etc/local.json
+node bin/bbk.js -c etc/client.json
 ```
 
 # BBK Heroku
@@ -65,6 +67,7 @@ node bin/local.js -c etc/local.json
 
 | 变量             | 默认值       | 说明                                      |
 | :--------------- | :----------- | :---------------------------------------- |
+| `MODE`      | `server`          | 运行模式(client/server)                |
 | `FILL_BYTE`      | `0`          | 用户混淆数据填充的无效字段                |
 | `LISTEN_ADDR`    | `127.0.0.1`  | 服务器监听地址，`0.0.0.0`表示监听所有接口 |
 | `LOG_LEVEL`      | `info`       | 控制台输出日志级别                        |
