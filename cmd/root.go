@@ -28,16 +28,17 @@ var RootCmd = &cobra.Command{
 			Ping:          viper.GetBool("ping"),
 		}
 
-		if opts.Mode != "server" && opts.Mode != "local" {
+		if opts.Mode != "server" && opts.Mode != "local" && opts.Mode != "client" {
 			log.Fatalln("invalid mode config in ", cfgFile)
 		}
 
-		if opts.Mode == "local" {
-			cli := bbk.NewClient(opts)
-			cli.Bootstrap()
-		} else {
+		if opts.Mode == "server" {
 			svr := bbk.NewServer(opts)
 			svr.Bootstrap()
+		} else {
+			cli := bbk.NewClient(opts)
+			cli.Bootstrap()
+
 		}
 
 	},
