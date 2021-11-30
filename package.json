@@ -4,7 +4,7 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "start": "node bin/server.js",
+        "start": "node bin/bbk.js",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "repository": {
