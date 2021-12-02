@@ -84,7 +84,7 @@ func (client *Client) setupwsConnection() {
 		for {
 			// 接收数据
 			_, data, err := ws.ReadMessage()
-			client.logger.Debugf("ws message len:%d\n", len(data))
+			//client.logger.Debugf("ws message len:%d\n", len(data))
 			if err != nil {
 				client.logger.Errorf("read ws data:%v\n", err)
 				return
@@ -100,7 +100,7 @@ func (client *Client) setupwsConnection() {
 				client.logger.Errorf("derialize: protocol error:%v\n", err)
 				return
 			}
-			client.logger.Debugf("ws message come for cid:%s\n", respFrame.Cid)
+			client.logger.Debugf("read ws tunnel data[%d]bytes, cid:%s\n", len(data), respFrame.Cid)
 			if respFrame.Type == PONG_FRAME {
 				stByte := respFrame.Data[:13]
 				atByte := respFrame.Data[13:26]
@@ -192,7 +192,7 @@ func (client *Client) sendRemoteFrame(frame *Frame) {
 		binaryData := client.serizer.Serialize(frame)
 		encData := client.encryptor.Encrypt(binaryData)
 		client.wsLock.Lock()
-		//log.Println("sendRemoteFrame====", len(frame.Data))
+		client.logger.Debugf("write ws tunnel data[%d]bytes, cid:%s \n", len(encData), frame.Cid)
 		wsConn.WriteMessage(websocket.BinaryMessage, encData)
 		client.wsLock.Unlock()
 	}
@@ -207,35 +207,39 @@ func (client *Client) handleConnection(conn net.Conn) {
 
 	// 读取 VER 和 NMETHODS
 	n, err := io.ReadFull(conn, buf[:2])
-	if n != 2 {
-		client.logger.Errorf("reading header: %v", err)
+	if n != 2 || err != nil {
+		client.logger.Errorf("reading ver[1], methodLen[1]: %v", err)
 		return
 	}
 
 	ver, nMethods := int(buf[0]), int(buf[1])
 	if ver != 5 {
-		client.logger.Error("invalid version")
+		client.logger.Errorf("invalid version %d\n", ver)
 		return
 	}
 
 	// 读取 METHODS 列表
 	n, err = io.ReadFull(conn, buf[:nMethods])
-	if n != nMethods {
-		client.logger.Error("read socks methods error!")
+	if n != nMethods || err != nil {
+		client.logger.Error("read socks methods error:%v\n", err)
 		return
 	}
-	client.logger.Info("SOCKS5[INIT]===")
+	//client.logger.Info("SOCKS5[INIT]===")
 	// INIT
 	//无需认证
 	n, err = conn.Write([]byte{0x05, 0x00})
 	if n != 2 || err != nil {
-		client.logger.Error("write rsp : " + err.Error())
+		client.logger.Error("write browser socks version : " + err.Error())
 		return
 	}
 
 	//119 119 119 46 103 111 111 103 108 101 46 99 111 109 1 187
 
 	n, err = io.ReadFull(conn, buf[:4])
+	if err != nil {
+		client.logger.Error("read exception: " + err.Error())
+		return
+	}
 	if n != 4 {
 		client.logger.Error("protol error: " + err.Error())
 		return
@@ -260,12 +264,16 @@ func (client *Client) handleConnection(conn net.Conn) {
 	addBuf := buf[3 : addrLen+3]
 
 	addrInfo, err := toolbox.ParseAddrInfo(addBuf)
+	if err != nil {
+		client.logger.Error("parse addr info error :" + err.Error())
+		return
+	}
 	client.logger.Infof("SOCKS5[COMMAND]===%s:%d\n", addrInfo.Addr, addrInfo.Port)
 
 	// COMMAND RESP
 	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	if err != nil {
-		client.logger.Error("write rsp: " + err.Error())
+		client.logger.Error("write last socks step error: " + err.Error())
 		return
 	}
 
@@ -285,8 +293,8 @@ func (client *Client) handleConnection(conn net.Conn) {
 		leng, err := conn.Read(cache)
 		if err == io.EOF {
 			// close by browser peer
-			//finFrame := Frame{Cid: cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
-			//client.flushRemoteFrame(&finFrame)
+			finFrame := Frame{Cid: cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
+			client.flushRemoteFrame(&finFrame)
 			return
 		}
 		//log.Println("read browser data<====", leng)
@@ -304,7 +312,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 
 func (client *Client) keepPingWs() {
 	go func() {
-		ticker := time.Tick(time.Second * 5)
+		ticker := time.Tick(time.Second * 10)
 		for range ticker {
 			data := toolbox.GetNowInt64Bytes()
 			pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
