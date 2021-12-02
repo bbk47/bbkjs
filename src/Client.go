@@ -21,7 +21,7 @@ const (
 	WEBSOCKET_DISCONNECT uint8 = 0x3
 )
 
-const DATA_MAX_SIEZ uint16 = 1024
+const DATA_MAX_SIEZ uint16 = 1024 * 4
 
 type Client struct {
 	opts      Option
@@ -69,7 +69,7 @@ func (client *Client) setupwsConnection() {
 	client.logger.Infof("connecting tunnel: %s\n", wsUrl)
 	ws, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("dial ws error: %v\n", err)
 	}
 	client.wsStatus = WEBSOCKET_OK
 	client.wsConn = ws
@@ -259,6 +259,11 @@ func (client *Client) handleConnection(conn net.Conn) {
 		domainLen := int(buf[4])
 		addrLen = domainLen + 4
 		_, err = io.ReadFull(conn, buf[5:5+domainLen+2])
+	}
+
+	if err != nil {
+		client.logger.Errorf("read exception atype[%d]:%s\n", atyp, err.Error())
+		return
 	}
 
 	addBuf := buf[3 : addrLen+3]

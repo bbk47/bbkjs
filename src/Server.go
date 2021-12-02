@@ -15,7 +15,7 @@ import (
 
 var upgrader = websocket.Upgrader{} // use default options
 
-const DATA_MAX_SIZE uint16 = 1024
+const DATA_MAX_SIZE uint16 = 1024 * 4
 
 const CONNECT_TIMEOUT = time.Second * 10
 
