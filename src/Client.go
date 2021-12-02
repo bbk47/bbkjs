@@ -24,9 +24,10 @@ const (
 const DATA_MAX_SIEZ uint16 = 1024
 
 type Client struct {
-	opts    Option
-	logger  *toolbox.Logger
-	serizer *Serializer
+	opts      Option
+	logger    *toolbox.Logger
+	serizer   *Serializer
+	encryptor *toolbox.Encryptor
 	// inner attr
 	wsStatus       uint8           // 线程共享变量
 	wsConn         *websocket.Conn //线程共享变量
@@ -46,11 +47,13 @@ func NewClient(opts Option) Client {
 	cli.browserSockets = make(map[string]net.Conn)
 	cli.lastPong = uint64(time.Now().UnixNano())
 	cli.remoteFrameQueue = FrameQueue{}
-	serizer, err := NewSerializer(opts.Method, opts.Password, opts.FillByte)
+	serizer, _ := NewSerializer(opts.Rnglen)
+	encryptor, err := toolbox.NewEncryptor(opts.Method, opts.Password)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	cli.serizer = serizer
+	cli.encryptor = encryptor
 	return cli
 }
 
@@ -80,13 +83,24 @@ func (client *Client) setupwsConnection() {
 
 		for {
 			// 接收数据
-			_, cache, err := ws.ReadMessage()
+			_, data, err := ws.ReadMessage()
+			client.logger.Debugf("ws message len:%d\n", len(data))
 			if err != nil {
 				client.logger.Errorf("read ws data:%v\n", err)
 				return
 			}
-			respFrame, err := client.serizer.Derialize(cache)
+			decData, err := client.encryptor.Decrypt(data)
 
+			if err != nil {
+				client.logger.Errorf("decrypt ws data:%v\n", err)
+				return
+			}
+			respFrame, err := client.serizer.Derialize(decData)
+			if err != nil {
+				client.logger.Errorf("derialize: protocol error:%v\n", err)
+				return
+			}
+			client.logger.Debugf("ws message come for cid:%s\n", respFrame.Cid)
 			if respFrame.Type == PONG_FRAME {
 				stByte := respFrame.Data[:13]
 				atByte := respFrame.Data[13:26]
@@ -120,6 +134,7 @@ func (client *Client) flushLocalFrame(frame *Frame) {
 		return
 	}
 	if frame.Type == STREAM_FRAME {
+		//client.logger.Debug("STREAM_FRAME===write browser socket.")
 		bsocket.Write(frame.Data)
 	} else if frame.Type == FIN_FRAME {
 		bsocket.Close()
@@ -175,9 +190,10 @@ func (client *Client) sendRemoteFrame(frame *Frame) {
 	}
 	if client.wsStatus == WEBSOCKET_OK {
 		binaryData := client.serizer.Serialize(frame)
+		encData := client.encryptor.Encrypt(binaryData)
 		client.wsLock.Lock()
 		//log.Println("sendRemoteFrame====", len(frame.Data))
-		wsConn.WriteMessage(websocket.BinaryMessage, binaryData)
+		wsConn.WriteMessage(websocket.BinaryMessage, encData)
 		client.wsLock.Unlock()
 	}
 }

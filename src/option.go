@@ -9,6 +9,6 @@ type Option struct {
 	LogLevel      string `json:"logLevel"`
 	WebsocketUrl  string `json:"websocketUrl"`
 	WebsocketPath string `json:"websocketPath"`
-	FillByte      int    `json:"fillByte"`
+	Rnglen        int    `json:"rnglen"`
 	Ping          bool   `json:"ping"`
 }

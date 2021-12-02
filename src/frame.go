@@ -2,7 +2,6 @@ package bbk
 
 import (
 	"github.com/bbk47/toolbox"
-	"sync"
 )
 
 const (
@@ -18,97 +17,61 @@ const (
 
 /**
  *
+ * // required: cid, type,  data
  * @param {*} frame
- * |<------32(cid)------->|<--6(rand byte)-->|<--1(type)-->|<------------data------------->|
- *
+ * |<-version[1]->|<--cidLen[1]-->|<---(cid)---->|<--type[1]-->|<--dataLen[2]-->|<-------data------>|<--rndLen[1]-->|<---ran data-->|
+ * |-----s1 ------|-------s2------|-----s3 ------|-------s4----|-------s5 ------|--------s6---------|------s7 ------|-------s8------|
  * @returns
  */
 
 type Frame struct {
-	Cid  string
-	Type uint8
-	Data []byte
+	Version uint8
+	Cid     string
+	Type    uint8
+	Data    []byte
 }
 
 type Serializer struct {
-	fillByte  int
-	encryptor *toolbox.Encryptor
+	rnglen int
 }
 
-func NewSerializer(method, password string, fillBye int) (ss *Serializer, err error) {
-	encryptor, err := toolbox.NewEncryptor(method, password)
+func NewSerializer(rnglen int) (ss *Serializer, err error) {
 	if err != nil {
 		return nil, err
 	}
-	ss = &Serializer{fillByte: fillBye}
-	ss.encryptor = encryptor
+	ss = &Serializer{rnglen: rnglen}
 	return ss, nil
 }
 
 func (ss *Serializer) Serialize(frame *Frame) []byte {
-	ret1 := []byte(frame.Cid)
-
-	if ss.fillByte > 0 {
-		randbs := toolbox.GetRandByte(ss.fillByte)
-		ret1 = append(randbs, ret1...)
+	if frame.Version == 0 {
+		frame.Version = 1
 	}
-
-	randBuf := toolbox.GetRandByte(6)
+	cidlen := len(frame.Cid)
+	datalen := len(frame.Data)
+	ret1 := []byte{frame.Version, uint8(cidlen)} // s1,s2
+	cidBuf := []byte(frame.Cid)                  // s3
+	ret2 := append(ret1, cidBuf...)              // s1+s2+s3
 	typeBuf := []byte{frame.Type}
-	ret2 := append(ret1, randBuf...)
-	ret3 := append(ret2, typeBuf[0])
-	ret4 := append(ret3, frame.Data...)
-	return ss.encryptor.Encrypt(ret4)
+	ret3 := append(ret2, typeBuf[0])                             // s1+s2+s3+s4
+	ret4 := append(ret3, uint8(datalen>>8), uint8(datalen&0xff)) // +s5
+	ret5 := append(ret4, frame.Data...)                          // +s6
+	if ss.rnglen > 0 {                                           // append random byte , if rnglen set.
+		randbs := toolbox.GetRandByte(ss.rnglen)
+		ret5 = append(ret5, uint8(ss.rnglen))
+		ret5 = append(ret5, randbs...)
+	}
+	return ret5
 }
 
-func (ss *Serializer) Derialize(binaryBs []byte) (frame *Frame, err error) {
-	decData, err := ss.encryptor.Decrypt(binaryBs)
-	if err != nil {
-		return nil, err
-	}
-	if ss.fillByte > 0 {
-		decData = decData[ss.fillByte:]
-	}
-
-	cid := string(decData[:32])
-	typeVal := decData[38]
-	dataBuf := decData[39:]
-	frame1 := Frame{Cid: cid, Type: typeVal, Data: dataBuf}
+func (ss *Serializer) Derialize(binaryDt []byte) (frame *Frame, err error) {
+	ver := binaryDt[0]                                               // s1
+	cidlen := binaryDt[1]                                            // s2
+	cid := string(binaryDt[2 : cidlen+2])                            // s3
+	typeVal := binaryDt[cidlen+2]                                    // s4
+	datalen := int(binaryDt[cidlen+3])*256 + int(binaryDt[cidlen+4]) //s5
+	startIndex := int(cidlen + 5)
+	dataBuf := binaryDt[startIndex : datalen+startIndex] // s6
+	frame1 := Frame{Version: ver, Cid: cid, Type: typeVal, Data: dataBuf}
 	return &frame1, nil
-}
-
-type FrameQueue struct {
-	items []Frame
-	lock  sync.RWMutex
-}
-
-// 创建队列
-func (q *FrameQueue) New() *FrameQueue {
-	q.items = []Frame{}
-	return q
-}
-
-// 入队列
-func (q *FrameQueue) Push(f Frame) {
-	q.lock.Lock()
-	q.items = append(q.items, f)
-	q.lock.Unlock()
-}
-
-// 出队列
-func (q *FrameQueue) Shift() *Frame {
-	q.lock.Lock()
-	item := q.items[0]
-	q.items = q.items[1:len(q.items)]
-	q.lock.Unlock()
-	return &item
-}
-
-// 判空
-func (q *FrameQueue) IsEmpty() bool {
-	return len(q.items) == 0
-}
-
-func (q *FrameQueue) Size() int {
-	return len(q.items)
 }

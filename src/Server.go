@@ -26,9 +26,10 @@ type Target struct {
 }
 
 type Server struct {
-	opts    Option
-	logger  *toolbox.Logger
-	serizer *Serializer
+	opts      Option
+	logger    *toolbox.Logger
+	serizer   *Serializer
+	encryptor *toolbox.Encryptor
 
 	targetDict map[string]*Target
 	wsLock     sync.Mutex
@@ -40,11 +41,14 @@ func NewServer(opt Option) Server {
 	s := Server{}
 	s.opts = opt
 	s.targetDict = make(map[string]*Target)
-	serizer, err := NewSerializer(opt.Method, opt.Password, opt.FillByte)
+	serizer, _ := NewSerializer(opt.Rnglen)
+
+	encryptor, err := toolbox.NewEncryptor(opt.Method, opt.Password)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	s.serizer = serizer
+	s.encryptor = encryptor
 
 	return s
 }
@@ -62,8 +66,19 @@ func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 			server.logger.Errorf("read ws: %v\n", err)
 			break
 		}
-		//log.Println("websocket client message come=====")
-		frame, err := server.serizer.Derialize(buf)
+		//log.Printf("websocket client message come=====length:%d\n", len(buf))
+		decData, err := server.encryptor.Decrypt(buf)
+		//log.Printf("websocket client message decdata=====length:%d\n", len(decData))
+		if err != nil {
+			server.logger.Errorf("decrypt ws data:%v\n", err)
+			return
+		}
+		frame, err := server.serizer.Derialize(decData)
+		if err != nil {
+			server.logger.Errorf("derialize: protocol error:%v\n", err)
+			return
+		}
+		server.logger.Debugf("ws message come for cid:%s,dataLen: %d, type:%d\n", frame.Cid, len(frame.Data), frame.Type)
 		if frame.Type == PING_FRAME {
 			timebs := toolbox.GetNowInt64Bytes()
 			data := append(frame.Data, timebs...)
@@ -107,10 +122,9 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 				targetObj.status = "destoryed"
 				tSocket.Close()
 			}()
-
 			server.safeWriteSocket(&tSocket, targetObj.dataCache)
+			server.logger.Infof("connect %s success. write:%d\n", destAddrPort, len(targetObj.dataCache))
 			targetObj.dataCache = nil
-			server.logger.Infof("connect %s success.\n", destAddrPort)
 
 			for {
 				//fmt.Println("====>check data from target...")
@@ -123,7 +137,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 					server.flushResponseFrame(clientWs, &finFrame)
 					return
 				}
-				//fmt.Println("====>read data target socket:", len2)
+				//fmt.Println("====>read remote target socket:", len2)
 				if err != nil {
 					server.logger.Errorf("read target socket:%v\n", err)
 					rstFrame := Frame{Cid: frame.Cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
@@ -137,22 +151,23 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 		}()
 
 	} else if frame.Type == STREAM_FRAME {
-		//log.Println("STREAM_FRAME===")
+		//log.Printf("STREAM_FRAME=== data.length:%d\n", len(frame.Data))
 		targetObj := server.resolveTarget(frame)
 		if targetObj == nil {
 			return
 		}
+		//log.Printf(" target status %s ===\n", targetObj.status)
 		if targetObj.status == "connecting" {
 			targetObj.dataCache = append(targetObj.dataCache, frame.Data...)
 			return
 		}
 		if targetObj.status == "connected" {
-			//log.Println("STREAM_FRAME_connected write=====")
+			//log.Println("STREAM_FRAME_connected write target socket=====")
 			server.safeWriteSocket(&targetObj.socket, frame.Data)
 		}
 
 	} else if frame.Type == FIN_FRAME {
-		log.Println("FIN_FRAME===")
+		//log.Println("FIN_FRAME===")
 		targetObj := server.resolveTarget(frame)
 		if targetObj == nil {
 			return
@@ -185,9 +200,10 @@ func (server *Server) safeWriteSocket(socket *net.Conn, data []byte) {
 func (server *Server) sendRespFrame(ws *websocket.Conn, frame *Frame) {
 	// 发送数据
 	binaryData := server.serizer.Serialize(frame)
-	//log.Println("sendRespFrame====", len(frame.Data))
+	encData := server.encryptor.Encrypt(binaryData)
+	//log.Println("sendRespFrame====", len(frame.Data), len(encData), frame.Cid)
 	server.wsLock.Lock()
-	err := ws.WriteMessage(websocket.BinaryMessage, binaryData)
+	err := ws.WriteMessage(websocket.BinaryMessage, encData)
 	server.wsLock.Unlock()
 	if err != nil {
 		server.logger.Errorf("send ws tunnel:%v\n", err)

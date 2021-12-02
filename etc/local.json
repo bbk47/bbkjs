@@ -1,11 +1,10 @@
 {
   "mode": "local",
   "listenAddr": "127.0.0.1",
-  "listenPort": 1090,
-  "fillByte": 0,
+  "listenPort": 1080,
+  "rnglen": 0,
   "logLevel": "info",
   "method": "aes-256-cfb",
-  "password": "p@ssword123",
-  "websocketUrl": "ws://127.0.0.1:8000/websocket1",
-  "ping": true
+  "password": "p@ssword",
+  "websocketUrl": "ws://127.0.0.1:5900/websocket"
 }

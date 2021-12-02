@@ -1,17 +1,21 @@
 package bbk
 
 import (
-	"encoding/hex"
+	"fmt"
 	"github.com/bbk47/toolbox"
 	"log"
 	"testing"
 )
 
-func TestFrameBase(t *testing.T) {
-	ser, _ := NewSerializer("aes-256-cfb", "csii2019", 2)
+func TestFrameStatic(t *testing.T) {
+	ser, _ := NewSerializer(2)
 
 	frame1 := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d31", Type: 1, Data: []byte{0x1, 0x2, 0x3, 0x4}}
 	result := ser.Serialize(&frame1)
+	fmt.Println(len(result))
+	if len(result) != 5+32+4+3 {
+		t.Errorf("test derialize failed! assert len=44!")
+	}
 	log.Println(toolbox.GetBytesHex(result))
 
 	frame2, err := ser.Derialize(result)
@@ -24,32 +28,33 @@ func TestFrameBase(t *testing.T) {
 	}
 }
 
-func TestFrameDerialize(t *testing.T) {
-	ser, _ := NewSerializer("aes-256-cfb", "csii2019", 4)
+func TestFrameType(t *testing.T) {
+	ser, _ := NewSerializer(0)
 
-	hex1 := "c477433834f6f3afff9a1afff166d69f7d70e46b4a48e77af54b870779179ce476837fac998243028863317c760e4a"
-	frame := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d32", Type: 1, Data: []byte{0x1, 0x2, 0x3, 0x4}}
-	data, err := hex.DecodeString(hex1)
-	if err != nil {
-		t.Error(err)
-	}
-	result, err := ser.Derialize(data)
+	frame := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d32", Type: 2, Data: []byte{0x1, 0x2, 0x3, 0x4}}
+	result := ser.Serialize(&frame)
+
+	frame2, err := ser.Derialize(result)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if result.Cid != frame.Cid || result.Type != frame.Type || toolbox.GetBytesHex(result.Data) != toolbox.GetBytesHex(frame.Data) {
+	if frame2.Cid == frame.Cid && frame2.Type == frame.Type {
+		// success
+	} else {
 		t.Errorf("test derialize failed!")
 	}
 }
 
 func TestFrameDynamicData(t *testing.T) {
-	ser, _ := NewSerializer("aes-256-cfb", "csii2019", 4)
+	ser, _ := NewSerializer(4)
 
 	randata := toolbox.GetRandByte(20)
 	frame := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d32", Type: 1, Data: randata}
 	result := ser.Serialize(&frame)
-
+	if len(result) != 5+32+20+5 {
+		t.Errorf("test derialize failed! assert len=5+32+20+5!")
+	}
 	frame2, err := ser.Derialize(result)
 	if err != nil {
 		t.Error(err)

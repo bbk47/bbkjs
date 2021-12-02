@@ -24,15 +24,18 @@ var RootCmd = &cobra.Command{
 			LogLevel:      viper.GetString("logLevel"),
 			WebsocketUrl:  viper.GetString("websocketUrl"),
 			WebsocketPath: viper.GetString("WebsocketPath"),
-			FillByte:      viper.GetInt("fillByte"),
+			Rnglen:        viper.GetInt("rnglen"),
 			Ping:          viper.GetBool("ping"),
 		}
 
 		if opts.Mode != "server" && opts.Mode != "local" && opts.Mode != "client" {
 			log.Fatalln("invalid mode config in ", cfgFile)
 		}
-
+		if opts.Rnglen > 127 || opts.Rnglen < 0 {
+			log.Fatalln("invalid rnglen  in ", cfgFile)
+		}
 		if opts.Mode == "server" {
+
 			svr := bbk.NewServer(opts)
 			svr.Bootstrap()
 		} else {
