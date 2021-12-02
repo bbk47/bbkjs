@@ -3,7 +3,7 @@
     "listenAddr": "127.0.0.1",
     "listenPort": 1090,
     "listenHttpPort": 1087,
-    "fillByte": 8,
+    "rnglen": 4,
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
