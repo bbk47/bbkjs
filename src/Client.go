@@ -100,7 +100,7 @@ func (client *Client) setupwsConnection() {
 				client.logger.Errorf("derialize: protocol error:%v\n", err)
 				return
 			}
-			client.logger.Debugf("read ws tunnel data[%d]bytes, cid:%s\n", len(data), respFrame.Cid)
+			client.logger.Debugf("read. ws tunnel cid:%s, data[%d]bytes\n", respFrame.Cid, len(data))
 			if respFrame.Type == PONG_FRAME {
 				stByte := respFrame.Data[:13]
 				atByte := respFrame.Data[13:26]
@@ -134,7 +134,7 @@ func (client *Client) flushLocalFrame(frame *Frame) {
 		return
 	}
 	if frame.Type == STREAM_FRAME {
-		//client.logger.Debug("STREAM_FRAME===write browser socket.")
+		client.logger.Debugf("write bs socket cid:%s, data[%d]bytes\n", frame.Cid, len(frame.Data))
 		bsocket.Write(frame.Data)
 	} else if frame.Type == FIN_FRAME {
 		bsocket.Close()
@@ -192,7 +192,7 @@ func (client *Client) sendRemoteFrame(frame *Frame) {
 		binaryData := client.serizer.Serialize(frame)
 		encData := client.encryptor.Encrypt(binaryData)
 		client.wsLock.Lock()
-		client.logger.Debugf("write ws tunnel data[%d]bytes, cid:%s \n", len(encData), frame.Cid)
+		client.logger.Debugf("write ws tunnel cid:%s, data[%d]bytes\n", frame.Cid, len(encData))
 		wsConn.WriteMessage(websocket.BinaryMessage, encData)
 		client.wsLock.Unlock()
 	}
@@ -229,7 +229,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 	//无需认证
 	n, err = conn.Write([]byte{0x05, 0x00})
 	if n != 2 || err != nil {
-		client.logger.Error("write browser socks version : " + err.Error())
+		client.logger.Error("write bs socks version : " + err.Error())
 		return
 	}
 
@@ -273,7 +273,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 	// COMMAND RESP
 	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 	if err != nil {
-		client.logger.Error("write last socks step error: " + err.Error())
+		client.logger.Error("write bs last socks step error: " + err.Error())
 		return
 	}
 
@@ -297,6 +297,7 @@ func (client *Client) handleConnection(conn net.Conn) {
 			client.flushRemoteFrame(&finFrame)
 			return
 		}
+		client.logger.Debugf("read. bs socket cid:%s, data[%d]\n", cid, leng)
 		//log.Println("read browser data<====", leng)
 		if err != nil {
 			client.logger.Errorf("read browser data:%v\n", err)

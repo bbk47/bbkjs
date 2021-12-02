@@ -78,7 +78,7 @@ func (server *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 			server.logger.Errorf("derialize: protocol error:%v\n", err)
 			return
 		}
-		server.logger.Debugf("ws message come for cid:%s,dataLen: %d, type:%d\n", frame.Cid, len(frame.Data), frame.Type)
+		server.logger.Debugf("read. ws tunnel cid:%s, data[%d]bytes\n", frame.Cid, len(buf))
 		if frame.Type == PING_FRAME {
 			timebs := toolbox.GetNowInt64Bytes()
 			data := append(frame.Data, timebs...)
@@ -123,7 +123,9 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 				tSocket.Close()
 			}()
 			server.safeWriteSocket(&tSocket, targetObj.dataCache)
-			server.logger.Infof("connect %s success. write:%d\n", destAddrPort, len(targetObj.dataCache))
+			dtlen := len(targetObj.dataCache)
+			server.logger.Debugf("write rm socket cid:%s, data[%d]bytes\n", frame.Cid, frame.Cid, dtlen)
+			server.logger.Infof("connect %s success. write:%d\n", destAddrPort, dtlen)
 			targetObj.dataCache = nil
 
 			for {
@@ -137,7 +139,7 @@ func (server *Server) dispatchRequest(clientWs *websocket.Conn, frame *Frame) {
 					server.flushResponseFrame(clientWs, &finFrame)
 					return
 				}
-				//fmt.Println("====>read remote target socket:", len2)
+				server.logger.Debugf("read. rm socket cid:%s, data[%d]bytes\n", frame.Cid, len2)
 				if err != nil {
 					server.logger.Errorf("read target socket:%v\n", err)
 					rstFrame := Frame{Cid: frame.Cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
@@ -203,6 +205,7 @@ func (server *Server) sendRespFrame(ws *websocket.Conn, frame *Frame) {
 	encData := server.encryptor.Encrypt(binaryData)
 	//log.Println("sendRespFrame====", len(frame.Data), len(encData), frame.Cid)
 	server.wsLock.Lock()
+	server.logger.Debugf("write ws tunnel cid:%s, data[%d]bytes\n", frame.Cid, len(encData))
 	err := ws.WriteMessage(websocket.BinaryMessage, encData)
 	server.wsLock.Unlock()
 	if err != nil {
