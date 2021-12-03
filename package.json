@@ -15,9 +15,8 @@
     "author": "",
     "license": "ISC",
     "dependencies": {
+        "@bbk47/toolbox": "^1.0.1",
         "commander": "^8.0.0",
-        "date-format": "^3.0.0",
-        "uuid": "^8.3.2",
         "ws": "2.3.x"
     }
 }
