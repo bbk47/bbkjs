@@ -1,5 +1,6 @@
 {
     "mode":"client",
+    "protocol":"h2",
     "listenAddr": "0.0.0.0",
     "listenPort": 1090,
     "listenHttpPort": 1087,
@@ -7,6 +8,6 @@
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
-    "websocketUrl": "ws://127.0.0.1:5900/websocket",
+    "http2Url": "http://127.0.0.1:5900/test",
     "ping": true
 }

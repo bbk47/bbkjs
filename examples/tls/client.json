@@ -1,5 +1,6 @@
 {
     "mode":"client",
+    "protocol":"tls",
     "listenAddr": "0.0.0.0",
     "listenPort": 1090,
     "listenHttpPort": 1087,
@@ -7,6 +8,10 @@
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
-    "websocketUrl": "ws://127.0.0.1:5900/websocket",
+    "sslCrt":"./examples/tls/certs/cert.pem",
+    "sslKey":"./examples/tls/certs/key.pem",
+    "tlsHost":"localhost",
+    "tlsPort":5900,
+    "http2Url": "http://127.0.0.1:5900/test",
     "ping": true
 }
