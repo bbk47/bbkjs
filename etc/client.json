@@ -1,12 +1,18 @@
 {
-    "mode":"client",
+    "mode": "client",
     "listenAddr": "0.0.0.0",
     "listenPort": 1090,
     "listenHttpPort": 1087,
-    "rnglen": 4,
     "logLevel": "info",
-    "method": "aes-256-cfb",
-    "password": "p@ssword",
-    "websocketUrl": "ws://127.0.0.1:5900/websocket",
+    "tunnelOpts": {
+        "protocol": "tcp",
+        "secure": false,
+        "host": "127.0.0.1",
+        "port": "5900",
+        "path": "/websocket",
+        "method": "aes-256-cfb",
+        "password": "p@ssword",
+        "rnglen": 4
+    },
     "ping": true
 }

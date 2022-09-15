@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@bbk47/toolbox@^1.0.1":
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/@bbk47/toolbox/-/toolbox-1.0.1.tgz#1e62c346ae4f56caaca1b9020c5f02faab506b04"
-  integrity sha512-vwTnKhseI4yLvd3wiMYqflvKHWpZv2aHkd/SUqgZ9C7JWv6445mTAJRy9jdRj3nrj+MdMEOSUYL3Au3llcA5dA==
+"@bbk47/toolbox@1.0.3":
+  version "1.0.3"
+  resolved "https://mirrors.cloud.tencent.com/npm/@bbk47%2ftoolbox/-/toolbox-1.0.3.tgz#310c49114002eebc396d663bfc0363a139f9db1c"
+  integrity sha512-TGogC2H+a3TGw+9LsCcjz543jAggs+14/q+TbacxVgRdI2ZiYJZFaFRErIEN3Y1tpzngdz7YWlN1tmFPTt4GNQ==
   dependencies:
     date-format "^3.0.0"
     uuid "^8.3.2"

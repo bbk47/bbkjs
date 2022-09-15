@@ -15,7 +15,7 @@
     "author": "",
     "license": "ISC",
     "dependencies": {
-        "@bbk47/toolbox": "^1.0.1",
+        "@bbk47/toolbox": "1.0.3",
         "commander": "^8.0.0",
         "ws": "2.3.x"
     }
