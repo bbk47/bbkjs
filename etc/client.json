@@ -11,8 +11,7 @@
         "port": "5900",
         "path": "/websocket",
         "method": "aes-256-cfb",
-        "password": "p@ssword",
-        "rnglen": 4
+        "password": "p@ssword"
     },
     "ping": true
 }
