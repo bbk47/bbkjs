@@ -3,7 +3,6 @@
     "protocol":"h2",
     "listenAddr": "127.0.0.1",
     "listenPort": 5900,
-    "rnglen": 2,
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",

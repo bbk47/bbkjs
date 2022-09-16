@@ -4,7 +4,6 @@
     "listenAddr": "0.0.0.0",
     "listenPort": 1090,
     "listenHttpPort": 1087,
-    "rnglen": 4,
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
