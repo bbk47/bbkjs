@@ -1,4 +1,4 @@
-package bbk
+package protocol
 
 import (
 	"fmt"
@@ -8,17 +8,16 @@ import (
 )
 
 func TestFrameStatic(t *testing.T) {
-	ser, _ := NewSerializer(2)
 
 	frame1 := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d31", Type: 1, Data: []byte{0x1, 0x2, 0x3, 0x4}}
-	result := ser.Serialize(&frame1)
+	result := Encode(&frame1)
 	fmt.Println(len(result))
-	if len(result) != 5+32+4+3 {
+	if len(result) != 5+32+4 {
 		t.Errorf("test derialize failed! assert len=44!")
 	}
 	log.Println(toolbox.GetBytesHex(result))
 
-	frame2, err := ser.Derialize(result)
+	frame2, err := Decode(result)
 	if err != nil {
 		t.Error(err)
 	}
@@ -29,12 +28,11 @@ func TestFrameStatic(t *testing.T) {
 }
 
 func TestFrameType(t *testing.T) {
-	ser, _ := NewSerializer(0)
 
 	frame := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d32", Type: 2, Data: []byte{0x1, 0x2, 0x3, 0x4}}
-	result := ser.Serialize(&frame)
+	result := Encode(&frame)
 
-	frame2, err := ser.Derialize(result)
+	frame2, err := Decode(result)
 	if err != nil {
 		t.Error(err)
 	}
@@ -47,15 +45,14 @@ func TestFrameType(t *testing.T) {
 }
 
 func TestFrameDynamicData(t *testing.T) {
-	ser, _ := NewSerializer(4)
 
 	randata := toolbox.GetRandByte(20)
 	frame := Frame{Cid: "79d309c9e17b44fc9e1425ed5fe92d32", Type: 1, Data: randata}
-	result := ser.Serialize(&frame)
-	if len(result) != 5+32+20+5 {
-		t.Errorf("test derialize failed! assert len=5+32+20+5!")
+	result := Encode(&frame)
+	if len(result) != 5+32+20 {
+		t.Errorf("test derialize failed! assert len=5+32+20!")
 	}
-	frame2, err := ser.Derialize(result)
+	frame2, err := Decode(result)
 	if err != nil {
 		t.Error(err)
 	}

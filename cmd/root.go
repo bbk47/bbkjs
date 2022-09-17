@@ -16,23 +16,38 @@ var RootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Do Stuff Here
 		opts := bbk.Option{
-			Mode:          viper.GetString("mode"),
-			ListenAddr:    viper.GetString("listenaddr"),
-			ListenPort:    viper.GetInt("listenport"),
-			Password:      viper.GetString("password"),
-			Method:        viper.GetString("method"),
-			LogLevel:      viper.GetString("logLevel"),
-			WebsocketUrl:  viper.GetString("websocketUrl"),
-			WebsocketPath: viper.GetString("WebsocketPath"),
-			Rnglen:        viper.GetInt("rnglen"),
-			Ping:          viper.GetBool("ping"),
+			Mode:           viper.GetString("mode"),
+			ListenAddr:     viper.GetString("listenAddr"),
+			ListenPort:     viper.GetInt("listenPort"),
+			ListenHttpPort: viper.GetInt("listenHttpPort"),
+			LogLevel:       viper.GetString("logLevel"),
+			Method:         viper.GetString("method"),
+			Password:       viper.GetString("password"),
+			WorkMode:       viper.GetString("workMode"),
+			WorkPath:       viper.GetString("workPath"),
+			SslKey:         viper.GetString("sslKey"),
+			SslCrt:         viper.GetString("sslCrt"),
+			Ping:           viper.GetBool("ping"),
 		}
 
-		if opts.Mode != "server" && opts.Mode != "local" && opts.Mode != "client" {
-			log.Fatalln("invalid mode config in ", cfgFile)
+		tunnelOps := bbk.TunnelOpts{
+			Protocol: viper.GetString("tunnelOpts.protocol"),
+			Secure:   viper.GetBool("tunnelOpts.secure"),
+			Host:     viper.GetString("tunnelOpts.host"),
+			Port:     viper.GetString("tunnelOpts.port"),
+			Path:     viper.GetString("tunnelOpts.path"),
+			Method:   viper.GetString("tunnelOpts.method"),
+			Password: viper.GetString("tunnelOpts.password"),
 		}
-		if opts.Rnglen > 127 || opts.Rnglen < 0 {
-			log.Fatalln("invalid rnglen  in ", cfgFile)
+
+		opts.TunnelOpts = &tunnelOps
+
+		if opts.Mode != "client" {
+			opts.TunnelOpts = nil
+		}
+
+		if opts.Mode != "server" && opts.Mode != "client" {
+			log.Fatalln("invalid mode config in ", cfgFile)
 		}
 		if opts.Mode == "server" {
 
@@ -47,7 +62,17 @@ var RootCmd = &cobra.Command{
 	},
 }
 
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version number of bbk",
+	Long:  `All software has versions. This is xuxihai's`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("bbk release v2.0.0 -- HEAD")
+	},
+}
+
 func init() {
+	RootCmd.AddCommand(versionCmd)
 	cobra.OnInitialize(initConfig)
 	RootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "--config config.json")
 }

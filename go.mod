@@ -3,10 +3,12 @@ module bbk
 go 1.15
 
 require (
-	github.com/bbk47/toolbox v0.0.0-20210726152201-731942b68fa4
+	github.com/avast/retry-go v2.7.0+incompatible
+	github.com/bbk47/toolbox v0.0.0-20220914092514-aff4ae0556b3
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.4.2
+	github.com/posener/h2conn v0.0.0-20180911140238-13e7df33ed15
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/viper v1.8.1
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
 )

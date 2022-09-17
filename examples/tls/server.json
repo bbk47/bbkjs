@@ -1,0 +1,12 @@
+{
+    "mode": "server",
+    "listenAddr": "127.0.0.1",
+    "listenPort": 5900,
+    "logLevel": "info",
+    "method": "aes-256-cfb",
+    "password": "p@ssword",
+    "workMode": "tls",
+    "workPath": "/websocket",
+    "sslCrt":"./examples/tls/certs/cert.pem",
+    "sslKey":"./examples/tls/certs/key.pem"
+}

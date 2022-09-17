@@ -1,14 +1,48 @@
 package bbk
 
 type Option struct {
-	Mode          string `json:"mode"`
-	ListenAddr    string `json:"listenAddr"`
-	ListenPort    int    `json:"listenPort"`
-	Password      string `json:"password"`
-	Method        string `json:"method"`
-	LogLevel      string `json:"logLevel"`
-	WebsocketUrl  string `json:"websocketUrl"`
-	WebsocketPath string `json:"websocketPath"`
-	Rnglen        int    `json:"rnglen"`
-	Ping          bool   `json:"ping"`
+	Mode           string      `json:"mode"`
+	ListenAddr     string      `json:"listenAddr"`
+	ListenPort     int         `json:"listenPort"`
+	ListenHttpPort int         `json:"listenPort"`
+	LogLevel       string      `json:"logLevel"`
+	Ping           bool        `json:"ping"`
+	Password       string      `json:"password"`
+	Method         string      `json:"method"`
+	WorkMode       string      `json:"workMode"`
+	WorkPath       string      `json:"workPath"`
+	SslKey         string      `json:"sslKey"` // server
+	SslCrt         string      `json:"sslCrt"` // server
+	TunnelOpts     *TunnelOpts `json:"tunnelOpts"`
 }
+
+type TunnelOpts struct {
+	Protocol string `json:"protocol"`
+	Secure   bool   `json:"secure"`
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Path     string `json:"path"`
+	Method   string `json:"method"`
+	Password string `json:"password"`
+}
+
+//const defaultOpts = {
+//	mode: 'server',
+//	method: 'aes-256-cfb', // local/server
+//	password: 'p@ssword', // local/server
+//	listenAddr: '127.0.0.1', // local/server
+//	listenPort: 5900, // local/server
+//	logLevel: 'info', // local/server
+//	workMode: 'ws',
+//	workPath: '/wss',
+//	tunnelOpts: {
+//		protocol: 'ws',
+//		secure: false,
+//		host: '127.0.0.1',
+//		port: 5900,
+//		path: '/wss',
+//		method: 'aes-256-cfb',
+//		password: 'p@ssword',
+//	},
+//	ping: false,
+//};

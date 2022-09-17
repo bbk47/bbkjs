@@ -1,8 +1,4 @@
-package bbk
-
-import (
-	"github.com/bbk47/toolbox"
-)
+package protocol
 
 const (
 	INIT_FRAME   uint8 = 0x0
@@ -15,12 +11,14 @@ const (
 	PONG_FRAME uint8 = 0x9
 )
 
+const DATA_MAX_SIZE = 1024 * 2
+
 /**
  *
  * // required: cid, type,  data
  * @param {*} frame
- * |<-version[1]->|<--cidLen[1]-->|<---(cid)---->|<--type[1]-->|<--dataLen[2]-->|<-------data------>|<--rndLen[1]-->|<---ran data-->|
- * |-----s1 ------|-------s2------|-----s3 ------|-------s4----|-------s5 ------|--------s6---------|------s7 ------|-------s8------|
+ * |<-version[1]->|<--cidLen[1]-->|<---(cid)---->|<--type[1]-->|<--dataLen[2]-->|<-------data------>|
+ * |-----s1 ------|-------s2------|-----s3 ------|-------s4----|-------s5 ------|--------s6---------|
  * @returns
  */
 
@@ -31,19 +29,7 @@ type Frame struct {
 	Data    []byte
 }
 
-type Serializer struct {
-	rnglen int
-}
-
-func NewSerializer(rnglen int) (ss *Serializer, err error) {
-	if err != nil {
-		return nil, err
-	}
-	ss = &Serializer{rnglen: rnglen}
-	return ss, nil
-}
-
-func (ss *Serializer) Serialize(frame *Frame) []byte {
+func Encode(frame *Frame) []byte {
 	if frame.Version == 0 {
 		frame.Version = 1
 	}
@@ -56,15 +42,10 @@ func (ss *Serializer) Serialize(frame *Frame) []byte {
 	ret3 := append(ret2, typeBuf[0])                             // s1+s2+s3+s4
 	ret4 := append(ret3, uint8(datalen>>8), uint8(datalen&0xff)) // +s5
 	ret5 := append(ret4, frame.Data...)                          // +s6
-	if ss.rnglen > 0 {                                           // append random byte , if rnglen set.
-		randbs := toolbox.GetRandByte(ss.rnglen)
-		ret5 = append(ret5, uint8(ss.rnglen))
-		ret5 = append(ret5, randbs...)
-	}
 	return ret5
 }
 
-func (ss *Serializer) Derialize(binaryDt []byte) (frame *Frame, err error) {
+func Decode(binaryDt []byte) (frame *Frame, err error) {
 	ver := binaryDt[0]                                               // s1
 	cidlen := binaryDt[1]                                            // s2
 	cid := string(binaryDt[2 : cidlen+2])                            // s3
@@ -74,4 +55,34 @@ func (ss *Serializer) Derialize(binaryDt []byte) (frame *Frame, err error) {
 	dataBuf := binaryDt[startIndex : datalen+startIndex] // s6
 	frame1 := Frame{Version: ver, Cid: cid, Type: typeVal, Data: dataBuf}
 	return &frame1, nil
+}
+
+func FrameSegment(frame *Frame) []*Frame {
+	var frames []*Frame
+	leng := 0
+	if frame.Data != nil {
+		leng = len(frame.Data)
+	}
+
+	if leng <= DATA_MAX_SIZE {
+		frames = append(frames, frame)
+	} else {
+		offset := 0
+		ldata := frame.Data
+		for {
+			offset2 := offset + DATA_MAX_SIZE
+			if offset2 > leng {
+				offset2 = leng
+			}
+			buf2 := make([]byte, offset2-offset)
+			copy(buf2, ldata[offset:offset2])
+			frame2 := Frame{Cid: frame.Cid, Type: frame.Type, Data: buf2}
+			frames = append(frames, &frame2)
+			offset = offset2
+			if offset2 == leng {
+				break
+			}
+		}
+	}
+	return frames
 }

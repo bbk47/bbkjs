@@ -1,319 +1,298 @@
 package bbk
 
 import (
+	"bbk/src/protocol"
+	"bbk/src/proxy"
+	"bbk/src/transport"
 	"bbk/src/utils"
 	"fmt"
+	"github.com/avast/retry-go"
 	"github.com/bbk47/toolbox"
-	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net"
-	"os"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
 )
 
-const (
-	WEBSOCKET_INIT       uint8 = 0x0
-	WEBSOCKET_CONNECTING uint8 = 0x1
-	WEBSOCKET_OK         uint8 = 0x2
-	WEBSOCKET_DISCONNECT uint8 = 0x3
-)
-
-const DATA_MAX_SIEZ uint16 = 1024 * 4
+type BrowserObj struct {
+	Cid   string `json:"cid"`
+	proxy proxy.Proxy
+	start chan uint8
+}
 
 type Client struct {
 	opts      Option
-	logger    *toolbox.Logger
 	serizer   *Serializer
-	encryptor *toolbox.Encryptor
+	logger    *toolbox.Logger
+	tunnelOps *TunnelOpts
 	// inner attr
-	wsStatus       uint8           // 线程共享变量
-	wsConn         *websocket.Conn //线程共享变量
-	lastPong       uint64
-	browserSockets map[string]net.Conn //线程共享变量
-	wsLock         sync.Mutex
-	bsLock         sync.Mutex
-	//wsRwLock         sync.RWMutex
-	//stRwLock         sync.RWMutex
-	remoteFrameQueue FrameQueue
+	retryCount   uint8
+	tunnelStatus uint8
+	transport    transport.Transport
+	lastPong     uint64
+	browserProxy map[string]*BrowserObj //线程共享变量
+	//tunlock          sync.Mutex
+	maplock sync.RWMutex
+	sendch  chan *protocol.Frame
 }
 
 func NewClient(opts Option) Client {
 	cli := Client{}
+
 	cli.opts = opts
-	cli.wsStatus = WEBSOCKET_INIT
-	cli.browserSockets = make(map[string]net.Conn)
+	cli.tunnelOps = opts.TunnelOpts
+	// other
+	cli.tunnelStatus = TUNNEL_INIT
+	cli.browserProxy = make(map[string]*BrowserObj)
 	cli.lastPong = uint64(time.Now().UnixNano())
-	cli.remoteFrameQueue = FrameQueue{}
-	serizer, _ := NewSerializer(opts.Rnglen)
-	encryptor, err := toolbox.NewEncryptor(opts.Method, opts.Password)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	cli.serizer = serizer
-	cli.encryptor = encryptor
+	cli.sendch = make(chan *protocol.Frame, 512)
+	cli.logger = utils.NewLogger("C", opts.LogLevel)
 	return cli
 }
 
-func (client *Client) setupwsConnection() {
-	if client.wsStatus == WEBSOCKET_CONNECTING || client.wsStatus == WEBSOCKET_OK {
+func (cli *Client) setupwsConnection() error {
+	cli.logger.Infof("creating tunnel.")
+	tunOpts := cli.tunnelOps
+	cli.logger.Infof("creating %s tunnel\n", tunOpts.Protocol)
+	err := retry.Do(
+		func() error {
+			tsport, err := CreateTransport(tunOpts)
+			if err != nil {
+				return err
+			}
+			cli.transport = tsport
+			return nil
+		},
+		retry.OnRetry(func(n uint, err error) {
+			cli.logger.Errorf("setup tunnel failed!%s\n", err.Error())
+		}),
+		retry.Attempts(5),
+		retry.Delay(time.Second*5),
+	)
+
+	if err != nil {
+		return err
+	}
+
+	cli.tunnelStatus = TUNNEL_OK
+	cli.logger.Infof("create tunnel success!\n")
+	go cli.receiveTunData()
+
+	return nil
+}
+
+func (cli *Client) receiveTunData() {
+	defer func() {
+		cli.tunnelStatus = TUNNEL_DISCONNECT
+	}()
+	for {
+		packet, err := cli.transport.ReadPacket()
+		//fmt.Printf("transport read data:len:%d\n", len(packet))
+		if err != nil {
+			cli.logger.Infof("tunnel error event:%s.", err.Error())
+			//cli.logger.Errorf("tunnel event:%v\n", message)
+			cli.tunnelStatus = TUNNEL_INIT
+			return
+		}
+		respFrame, err := cli.serizer.Derialize(packet)
+		if err != nil {
+			cli.logger.Errorf("protol error:%v\n", err)
+			return
+		}
+
+		cli.logger.Debugf("read. ws tunnel cid:%s, data[%d]bytes\n", respFrame.Cid, len(packet))
+		if respFrame.Type == protocol.PONG_FRAME {
+			stByte := respFrame.Data[:13]
+			atByte := respFrame.Data[13:26]
+			nowst := time.Now().UnixNano() / 1e6
+			st, err1 := strconv.Atoi(string(stByte))
+			at, err2 := strconv.Atoi(string(atByte))
+
+			if err1 != nil || err2 != nil {
+				cli.logger.Warn("invalid ping pong format")
+				continue
+			}
+			upms := int64((at)) - int64(st)
+			downms := nowst - int64(at)
+
+			cli.logger.Infof("ws tunnel health！ up:%dms, down:%dms, rtt:%dms", upms, downms, nowst-int64(st))
+		} else {
+			cli.flushLocalFrame(respFrame)
+		}
+	}
+}
+
+func (cli *Client) flushLocalFrame(frame *protocol.Frame) {
+	// flush local Frame
+	cli.maplock.RLock()
+	browserobj := cli.browserProxy[frame.Cid]
+	cli.maplock.RUnlock()
+	cli.logger.Debugf("write browser socket data:%d\n", len(frame.Data))
+	if browserobj == nil {
 		return
 	}
-	client.wsLock.Lock()
-	defer client.wsLock.Unlock()
-	// setup ws connection
-	client.wsStatus = WEBSOCKET_CONNECTING
-	wsUrl := client.opts.WebsocketUrl
-	client.logger.Infof("connecting tunnel: %s\n", wsUrl)
-	ws, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
-	if err != nil {
-		log.Fatalf("dial ws error: %v\n", err)
+	//cli.bsLock.Lock()
+	//
+	//defer cli.bsLock.Unlock()
+
+	if frame.Type == protocol.STREAM_FRAME {
+		cli.logger.Debugf("write local conn frame...%s\n", frame.Cid)
+		browserobj.proxy.Write(frame.Data)
+	} else if frame.Type == protocol.FIN_FRAME {
+		browserobj.proxy.Close()
+		cli.logger.Debug("FIN_FRAME===close browser socket.")
+	} else if frame.Type == protocol.RST_FRAME {
+		cli.logger.Debug("RST_FRAME===close browser socket.")
+		browserobj.proxy.Close()
+	} else if frame.Type == protocol.EST_FRAME {
+		estAddrInfo, _ := toolbox.ParseAddrInfo(frame.Data)
+		cli.logger.Infof("EST_FRAME connect %s:%d success.\n", estAddrInfo.Addr, estAddrInfo.Port)
+		browserobj.start <- 1
 	}
-	client.wsStatus = WEBSOCKET_OK
-	client.wsConn = ws
-	client.logger.Info("setup ws tunnel, start receive data ws======")
-	client.flushRemoteFrame(nil)
+
+}
+
+func (cli *Client) serviceWorker() {
 	go func() {
-		defer func() {
-			ws.Close()
-			client.wsStatus = WEBSOCKET_DISCONNECT
-		}()
-
 		for {
-			// 接收数据
-			_, data, err := ws.ReadMessage()
-			//client.logger.Debugf("ws message len:%d\n", len(data))
-			if err != nil {
-				client.logger.Errorf("read ws data:%v\n", err)
-				return
+			select {
+			case ref := <-cli.sendch:
+				cli.sendRemoteFrame(ref)
 			}
-			decData, err := client.encryptor.Decrypt(data)
-
-			if err != nil {
-				client.logger.Errorf("decrypt ws data:%v\n", err)
-				return
-			}
-			respFrame, err := client.serizer.Derialize(decData)
-			if err != nil {
-				client.logger.Errorf("derialize: protocol error:%v\n", err)
-				return
-			}
-			client.logger.Debugf("read. ws tunnel cid:%s, data[%d]bytes\n", respFrame.Cid, len(data))
-			if respFrame.Type == PONG_FRAME {
-				stByte := respFrame.Data[:13]
-				atByte := respFrame.Data[13:26]
-				nowst := time.Now().UnixNano() / 1e6
-				st, err1 := strconv.Atoi(string(stByte))
-				at, err2 := strconv.Atoi(string(atByte))
-
-				if err1 != nil || err2 != nil {
-					client.logger.Warn("invalid ping pong format")
-					continue
-				}
-				upms := int64((at)) - int64(st)
-				downms := nowst - int64(at)
-
-				client.logger.Infof("ws tunnel health！ up:%dms, down:%dms, rtt:%dms", upms, downms, nowst-int64(st))
-			} else {
-				client.flushLocalFrame(respFrame)
-			}
-
 		}
 	}()
 }
-func (client *Client) flushLocalFrame(frame *Frame) {
-	client.bsLock.Lock()
-
-	defer client.bsLock.Unlock()
-	// flush local Frame
-	bsocket := client.browserSockets[frame.Cid]
-	//log.Println("write browser socket data:", len(frame.Data))
-	if bsocket == nil {
-		return
+func (cli *Client) resetSockets() {
+	cli.logger.Info("==== reset browser sockets ====")
+	keys := make([]string, len(cli.browserProxy))
+	j := 0
+	for k := range cli.browserProxy {
+		keys[j] = k
+		j++
 	}
-	if frame.Type == STREAM_FRAME {
-		client.logger.Debugf("write bs socket cid:%s, data[%d]bytes\n", frame.Cid, len(frame.Data))
-		bsocket.Write(frame.Data)
-	} else if frame.Type == FIN_FRAME {
-		bsocket.Close()
-		client.logger.Info("FIN_FRAME===close browser socket.")
-	} else if frame.Type == RST_FRAME {
-		client.logger.Info("RST_FRAME===close browser socket.")
-		bsocket.Close()
-	} else if frame.Type == EST_FRAME {
-		estAddrInfo, _ := toolbox.ParseAddrInfo(frame.Data)
-		client.logger.Infof("EST_FRAME connect %s:%d success.\n", estAddrInfo.Addr, estAddrInfo.Port)
+	cli.maplock.Lock()
+	for _, value := range keys {
+		browserobj := cli.browserProxy[value]
+		browserobj.proxy.Close()
+		delete(cli.browserProxy, value)
 	}
-
+	cli.maplock.Unlock()
 }
 
-func (client *Client) flushRemoteFrame(frame *Frame) {
-	queue := client.remoteFrameQueue
-	if frame != nil {
-		queue.Push(*frame)
-	}
-	//log.Println("flushRemoteFrame=======")
-	client.setupwsConnection()
-	if client.wsStatus != WEBSOCKET_OK {
-		return
-	}
-	for {
-		if queue.IsEmpty() {
+func (cli *Client) flushRemoteFrame(frame *protocol.Frame) {
+	cli.sendch <- frame
+}
+
+func (cli *Client) sendRemoteFrame(frame *protocol.Frame) {
+	//fmt.Println("=====flushRemoteFrame2====")
+	//cli.tunlock.Lock()
+	//defer cli.tunlock.Unlock()
+	if cli.tunnelStatus != TUNNEL_OK {
+		err := cli.setupwsConnection()
+		if err != nil {
+			log.Fatal(err)
 			return
 		}
-		frame2 := queue.Shift()
-		leng := uint16(len(frame.Data))
-		if leng < DATA_MAX_SIEZ {
-			client.sendRemoteFrame(frame2)
-		} else {
-			var offset uint16 = 0
-			for {
-				if offset < leng {
-					frame2 := Frame{Cid: frame2.Cid, Type: frame2.Type, Data: frame2.Data[offset : offset+DATA_MAX_SIEZ]}
-					offset += DATA_MAX_SIEZ
-					client.sendRemoteFrame(&frame2)
-				} else {
-					break
-				}
-			}
+		cli.resetSockets()
+	}
 
+	cli.logger.Debugf("send remote frame. type:%d\n", frame.Type)
+	frames := protocol.FrameSegment(frame)
+	for _, smallframe := range frames {
+		binaryData := cli.serizer.Serialize(smallframe)
+		err := cli.transport.Send(binaryData)
+		if err != nil {
+			cli.logger.Errorf("send remote frame err:%s\n", err.Error())
+			cli.tunnelStatus = TUNNEL_DISCONNECT
 		}
 	}
+
+}
+func (cli *Client) handleSocks5Conn(conn net.Conn) {
+	proxyConn, err := proxy.NewSocks5Proxy(conn)
+	if err != nil {
+		cli.logger.Errorf("create proxy err:%s\n", err.Error())
+		return
+	}
+	cli.bindProxySocket(proxyConn)
 }
 
-func (client *Client) sendRemoteFrame(frame *Frame) {
-	wsConn := client.wsConn
-	if wsConn == nil {
-		client.logger.Infof("wsConn is nil: status=%d", client.wsStatus)
+func (cli *Client) handleConnectReq(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodConnect {
+		proxyConn, err := proxy.NewConnectProxy(writer, request)
+		if err != nil {
+			cli.logger.Errorf("create proxy err:%s\n", err.Error())
+			return
+		}
+		cli.bindProxySocket(proxyConn)
+	} else {
+		writer.Write([]byte("welcome to bbk client!"))
+		//handleHTTP(w, r)
 	}
-	if client.wsStatus == WEBSOCKET_OK {
-		binaryData := client.serizer.Serialize(frame)
-		encData := client.encryptor.Encrypt(binaryData)
-		client.wsLock.Lock()
-		client.logger.Debugf("write ws tunnel cid:%s, data[%d]bytes\n", frame.Cid, len(encData))
-		wsConn.WriteMessage(websocket.BinaryMessage, encData)
-		client.wsLock.Unlock()
-	}
+
 }
 
-func (client *Client) handleConnection(conn net.Conn) {
+func (cli *Client) bindProxySocket(proxysvc proxy.Proxy) {
+	defer proxysvc.Close()
 
-	//log.Println("client connection come!")
-	defer conn.Close()
-
-	buf := make([]byte, 256)
-
-	// 读取 VER 和 NMETHODS
-	n, err := io.ReadFull(conn, buf[:2])
-	if n != 2 || err != nil {
-		client.logger.Errorf("reading ver[1], methodLen[1]: %v", err)
-		return
-	}
-
-	ver, nMethods := int(buf[0]), int(buf[1])
-	if ver != 5 {
-		client.logger.Errorf("invalid version %d\n", ver)
-		return
-	}
-
-	// 读取 METHODS 列表
-	n, err = io.ReadFull(conn, buf[:nMethods])
-	if n != nMethods || err != nil {
-		client.logger.Error("read socks methods error:%v\n", err)
-		return
-	}
-	//client.logger.Info("SOCKS5[INIT]===")
-	// INIT
-	//无需认证
-	n, err = conn.Write([]byte{0x05, 0x00})
-	if n != 2 || err != nil {
-		client.logger.Error("write bs socks version : " + err.Error())
-		return
-	}
-
-	//119 119 119 46 103 111 111 103 108 101 46 99 111 109 1 187
-
-	n, err = io.ReadFull(conn, buf[:4])
+	addrInfo, err := toolbox.ParseAddrInfo(proxysvc.GetAddr())
 	if err != nil {
-		client.logger.Error("read exception: " + err.Error())
+		cli.logger.Infof("prase addr info err:%s\n", err.Error())
 		return
 	}
-	if n != 4 {
-		client.logger.Error("protol error: " + err.Error())
-		return
-	}
-
-	ver, cmd, _, atyp := int(buf[0]), buf[1], buf[2], buf[3]
-	if ver != 5 || cmd != 1 {
-		client.logger.Error("invalid ver/cmd")
-		return
-	}
-	addrLen := 0
-	if atyp == 0x1 {
-		addrLen = 7
-		_, err = io.ReadFull(conn, buf[4:10])
-	} else if atyp == 0x3 {
-		_, err = io.ReadFull(conn, buf[4:5])
-		domainLen := int(buf[4])
-		addrLen = domainLen + 4
-		_, err = io.ReadFull(conn, buf[5:5+domainLen+2])
-	}
-
-	if err != nil {
-		client.logger.Errorf("read exception atype[%d]:%s\n", atyp, err.Error())
-		return
-	}
-
-	addBuf := buf[3 : addrLen+3]
-
-	addrInfo, err := toolbox.ParseAddrInfo(addBuf)
-	if err != nil {
-		client.logger.Error("parse addr info error :" + err.Error())
-		return
-	}
-	client.logger.Infof("SOCKS5[COMMAND]===%s:%d\n", addrInfo.Addr, addrInfo.Port)
-
-	// COMMAND RESP
-	n, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-	if err != nil {
-		client.logger.Error("write bs last socks step error: " + err.Error())
-		return
-	}
+	remoteaddr := fmt.Sprintf("%s:%d", addrInfo.Addr, addrInfo.Port)
+	cli.logger.Infof("COMMAND===%s\n", remoteaddr)
 
 	cid := utils.GetUUID()
+	newbrowserobj := &BrowserObj{proxy: proxysvc, start: make(chan uint8), Cid: cid}
+	cli.maplock.Lock()
+	cli.browserProxy[cid] = newbrowserobj
+	cli.maplock.Unlock()
 
-	client.bsLock.Lock()
-	client.browserSockets[cid] = conn
-	client.bsLock.Unlock()
+	defer func() {
+		cli.maplock.Lock()
+		delete(cli.browserProxy, cid)
+		cli.maplock.Unlock()
+	}()
+	startFrame := protocol.Frame{Cid: cid, Type: protocol.INIT_FRAME, Data: proxysvc.GetAddr()}
+	cli.flushRemoteFrame(&startFrame)
 
-	startFrame := Frame{Cid: cid, Type: INIT_FRAME, Data: addBuf}
+	select {
+	case <-newbrowserobj.start: // 收到信号才开始读
+		cli.readBrowserSocket(newbrowserobj)
+	case <-time.After(10 * time.Second):
+		cli.logger.Warnf("connect %s timeout 10000ms exceeded!", remoteaddr)
+	}
+}
+func (cli *Client) readBrowserSocket(browserobj *BrowserObj) {
 
-	client.flushRemoteFrame(&startFrame)
 	cache := make([]byte, 1024)
 	for {
 		// 接收数据
 		//log.Println("start read browser data<====")
-		leng, err := conn.Read(cache)
+		leng, err := browserobj.proxy.Read(cache)
 		if err == io.EOF {
 			// close by browser peer
-			finFrame := Frame{Cid: cid, Type: FIN_FRAME, Data: []byte{0x1, 0x2}}
-			client.flushRemoteFrame(&finFrame)
+			cli.logger.Info("proxy browser socket close by peer.")
+			rstFrame := protocol.Frame{Cid: browserobj.Cid, Type: protocol.FIN_FRAME, Data: []byte{0x1, 0x1}}
+			cli.flushRemoteFrame(&rstFrame)
 			return
 		}
-		client.logger.Debugf("read. bs socket cid:%s, data[%d]\n", cid, leng)
 		//log.Println("read browser data<====", leng)
 		if err != nil {
-			client.logger.Errorf("read browser data:%v\n", err)
-			rstFrame := Frame{Cid: cid, Type: RST_FRAME, Data: []byte{0x1, 0x2}}
-			client.flushRemoteFrame(&rstFrame)
+			cli.logger.Error(err.Error())
+			rstFrame := protocol.Frame{Cid: browserobj.Cid, Type: protocol.RST_FRAME, Data: []byte{0x1, 0x2}}
+			cli.flushRemoteFrame(&rstFrame)
 			return
 		}
-		streamFrame := Frame{Cid: cid, Type: STREAM_FRAME, Data: cache[:leng]}
-		client.flushRemoteFrame(&streamFrame)
+		sdata := make([]byte, leng)
+		copy(sdata, cache[:leng])
+		streamFrame := protocol.Frame{Cid: browserobj.Cid, Type: protocol.STREAM_FRAME, Data: sdata}
+		cli.flushRemoteFrame(&streamFrame)
 	}
-
 }
 
 func (client *Client) keepPingWs() {
@@ -321,37 +300,59 @@ func (client *Client) keepPingWs() {
 		ticker := time.Tick(time.Second * 10)
 		for range ticker {
 			data := toolbox.GetNowInt64Bytes()
-			pingFrame := Frame{Cid: "00000000000000000000000000000000", Type: PING_FRAME, Data: data}
+			pingFrame := protocol.Frame{Cid: "00000000000000000000000000000000", Type: protocol.PING_FRAME, Data: data}
 			client.sendRemoteFrame(&pingFrame)
 		}
 	}()
 }
 
-func (client *Client) initServer() {
-	opt := client.opts
+func (cli *Client) initSocks5Server() {
+	opt := cli.opts
 	listenAddrPort := fmt.Sprintf("%s:%d", opt.ListenAddr, opt.ListenPort)
 	server, err := net.Listen("tcp", listenAddrPort)
 	if err != nil {
-		log.Fatalf("Listen failed: %v\n", err)
+		cli.logger.Fatalf("Listen failed: %v\n", err)
 	}
-	client.logger.Infof("server listen on socks5://%v\n", listenAddrPort)
+	cli.logger.Infof("server listen on socks5://%v\n", listenAddrPort)
 	for {
 		conn, err := server.Accept()
 		if err != nil {
-			client.logger.Errorf("Accept failed: %v\n", err)
+			cli.logger.Errorf("Accept failed: %v", err)
 			continue
 		}
-		go client.handleConnection(conn)
+		go cli.handleSocks5Conn(conn)
 	}
 }
 
-func (client *Client) initLogger() {
-	client.logger = toolbox.Log.NewLogger(os.Stdout, "L")
-	client.logger.SetLevel(client.opts.LogLevel)
+func (cli *Client) initConnectServer() {
+	opt := cli.opts
+
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cli.handleConnectReq(writer, request)
+	})
+	localtion := fmt.Sprintf("%s:%s", opt.ListenAddr, fmt.Sprintf("%v", opt.ListenHttpPort))
+	cli.logger.Infof("connect listen on http://%s\n", localtion)
+	log.Fatal(http.ListenAndServe(localtion, handler))
 }
 
-func (client *Client) Bootstrap() {
-	client.initLogger()
-	client.keepPingWs()
-	client.initServer()
+func (cli *Client) initServer() {
+	if cli.opts.ListenHttpPort > 1080 {
+		go cli.initConnectServer()
+	}
+	cli.initSocks5Server()
+}
+
+func (cli *Client) initSerizer() {
+	serizer, err := NewSerializer(cli.tunnelOps.Method, cli.tunnelOps.Password)
+	if err != nil {
+		cli.logger.Fatal(err)
+	}
+	cli.serizer = serizer
+}
+
+func (cli *Client) Bootstrap() {
+	cli.initSerizer()
+	cli.keepPingWs()
+	cli.serviceWorker()
+	cli.initServer()
 }
