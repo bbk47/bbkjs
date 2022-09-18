@@ -2,55 +2,25 @@ package bbk
 
 import (
 	"bbk/src/protocol"
+	"bbk/src/server"
 	"bbk/src/transport"
-	"crypto/tls"
 	"fmt"
 	"github.com/bbk47/toolbox"
-	"github.com/gorilla/websocket"
-	"github.com/posener/h2conn"
-	"golang.org/x/net/http2"
 	"io"
-	"log"
 	"net"
-	"net/http"
 	"os"
 	"sync"
 )
 
-var upgrader = websocket.Upgrader{} // use default options
-
 type ConnectObj struct {
-	Id        string `json:"id"`
-	ctype     string
-	wSocket   *websocket.Conn
-	tcpSocket net.Conn
-	h2socket  *h2conn.Conn
-	Mode      string `json:"mode"`
-	Delay     int    `json:"delay"`
-	Seed      string `json:"seed"`
-	RemoteId  string `json:"remoteId"`
-	wlock     sync.Mutex
-}
-
-func (conobj *ConnectObj) BindSocket(evts *transport.Events) {
-	if conobj.ctype == "ws" {
-		transport.BindWsSocket(conobj.wSocket, evts)
-	} else if conobj.ctype == "tcp" || conobj.ctype == "tls" {
-		transport.BindStreamSocket(conobj.tcpSocket, evts)
-	} else {
-		transport.BindH2cStreamEvents(conobj.h2socket, evts)
-	}
-}
-
-func (conobj *ConnectObj) Write(data []byte) (err error) {
-	if conobj.ctype == "ws" {
-		err = transport.SendWsSocket(conobj.wSocket, data)
-	} else if conobj.ctype == "tls" || conobj.ctype == "tcp" {
-		err = transport.SendStreamSocket(conobj.tcpSocket, data)
-	} else {
-		err = transport.SendHttp2Stream(conobj.h2socket, data)
-	}
-	return err
+	Id       string `json:"id"`
+	ctype    string
+	tconn    *server.TunnelConn
+	Mode     string `json:"mode"`
+	Delay    int    `json:"delay"`
+	Seed     string `json:"seed"`
+	RemoteId string `json:"remoteId"`
+	wlock    sync.Mutex
 }
 
 type Target struct {
@@ -83,19 +53,20 @@ func NewServer(opt Option) Server {
 	return s
 }
 
-func (servss *Server) handleConnection(conobj *ConnectObj) {
+func (servss *Server) handleConnection(tunconn *server.TunnelConn) {
 	evts := &transport.Events{Data: make(chan []byte), Status: make(chan string)}
 
-	go conobj.BindSocket(evts)
-	if conobj.ctype == "http2" {
-		servss.handleEvents(conobj, evts)
+	go tunconn.BindEvents(evts)
+	if tunconn.Tuntype == "h2" {
+		servss.handleEvents(tunconn, evts)
 	} else {
-		go servss.handleEvents(conobj, evts)
+		go servss.handleEvents(tunconn, evts)
 	}
 }
 
-func (servss *Server) handleEvents(connectObj *ConnectObj, evts *transport.Events) {
+func (servss *Server) handleEvents(tunconn *server.TunnelConn, evts *transport.Events) {
 	servss.logger.Infof("listening %s events!\n", servss.opts.WorkMode)
+	connectObj := &ConnectObj{tconn: tunconn}
 	for {
 		select {
 		case message := <-evts.Status:
@@ -257,7 +228,7 @@ func (servss *Server) sendRespFrame(connobj *ConnectObj, frame *protocol.Frame) 
 	servss.tsLock.Lock()
 	defer servss.tsLock.Unlock()
 	// 发送数据
-	err := connobj.Write(binaryData)
+	err := connobj.tconn.SendPacket(binaryData)
 	if err != nil {
 		servss.releaseTunnel(connobj)
 		return
@@ -272,85 +243,44 @@ func (servss *Server) flushRespFrame(connobj *ConnectObj, frame *protocol.Frame)
 	}
 }
 
-func (servss *Server) initServer() error {
+func (servss *Server) initServer() {
 	opt := servss.opts
-	localtion := fmt.Sprintf("%s:%s", opt.ListenAddr, fmt.Sprintf("%v", opt.ListenPort))
-	if opt.WorkMode == "ws" {
-		http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-			writer.Write([]byte("Hello world!"))
-		})
-		http.HandleFunc(opt.WorkPath, func(writer http.ResponseWriter, request *http.Request) {
-			wsconn, err := upgrader.Upgrade(writer, request, nil)
-			if err != nil {
-				servss.logger.Infof("upgrade:%s", err.Error())
-				writer.Write([]byte(err.Error()))
-				return
-			}
-			servss.handleConnection(&ConnectObj{wSocket: wsconn, ctype: "ws"})
-		})
-		servss.logger.Infof("servss listen on ws://127.0.0.1:%d", servss.opts.ListenPort)
-		log.Fatal(http.ListenAndServe(localtion, nil))
-	} else if opt.WorkMode == "tcp" {
-		listener, err := net.Listen("tcp", localtion)
+	if opt.WorkMode == "tcp" {
+		srv, err := server.NewAbcTcpServer(opt.ListenAddr, opt.ListenPort)
 		if err != nil {
-			servss.logger.Fatalf("Listen failed: %v\n", err)
+			servss.logger.Fatalf("create server failed: %v\n", err)
+			return
 		}
-		servss.logger.Infof("servss listen on tcp://%v\n", localtion)
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				servss.logger.Errorf("Accept failed: %v", err)
-				continue
-			}
-			servss.handleConnection(&ConnectObj{tcpSocket: conn, ctype: "tcp"})
-		}
+		servss.logger.Infof("servss listen tcp://%s:%d\n", opt.ListenAddr, opt.ListenPort)
+		srv.ListenConn(servss.handleConnection)
 	} else if opt.WorkMode == "tls" {
-		cer, err := tls.LoadX509KeyPair(opt.SslCrt, opt.SslKey)
+		srv, err := server.NewAbcTlsServer(opt.ListenAddr, opt.ListenPort, opt.SslCrt, opt.SslKey)
 		if err != nil {
-			servss.logger.Fatalf("load ssl certs  failed: %v\n", err)
-			return err
+			servss.logger.Fatalf("create server failed: %v\n", err)
+			return
 		}
-		config := &tls.Config{Certificates: []tls.Certificate{cer}}
-		ln, err := tls.Listen("tcp", localtion, config)
+		servss.logger.Infof("servss listen tls://%s:%d\n", opt.ListenAddr, opt.ListenPort)
+		srv.ListenConn(servss.handleConnection)
+	} else if opt.WorkMode == "ws" {
+		srv, err := server.NewAbcWssServer(opt.ListenAddr, opt.ListenPort, opt.WorkPath)
 		if err != nil {
-			servss.logger.Fatalf("Listen failed: %v\n", err)
-			return err
+			servss.logger.Fatalf("create server failed: %v\n", err)
+			return
 		}
-		servss.logger.Infof("servss listen tls://%s\n", localtion)
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			servss.handleConnection(&ConnectObj{tcpSocket: conn, ctype: "tls"})
-		}
+		servss.logger.Infof("servss listen ws://%s:%d/%s\n", opt.ListenAddr, opt.ListenPort, opt.WorkPath)
+		srv.ListenConn(servss.handleConnection)
 	} else if opt.WorkMode == "h2" {
-		var srv http.Server
-		srv.Addr = localtion
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("hello world"))
-		})
-		http.HandleFunc(opt.WorkPath, func(w http.ResponseWriter, r *http.Request) {
-			// We only accept HTTP/2!
-			// (Normally it's quite common to accept HTTP/1.- and HTTP/2 together.)
-			conn, err := h2conn.Accept(w, r)
-			if err != nil {
-				log.Printf("Failed creating connection from %s: %s", r.RemoteAddr, err)
-				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-				return
-			}
-			servss.handleConnection(&ConnectObj{h2socket: conn, ctype: "http2"})
-		})
-
-		_ = http2.ConfigureServer(&srv, &http2.Server{})
-		servss.logger.Infof("servss listen http2://%s\n", localtion)
-		log.Fatal(srv.ListenAndServeTLS(opt.SslCrt, opt.SslKey))
+		srv, err := server.NewAbcHttp2Server(opt.ListenAddr, opt.ListenPort, opt.WorkPath, opt.SslCrt, opt.SslKey)
+		if err != nil {
+			servss.logger.Fatalf("create server failed: %v\n", err)
+			return
+		}
+		servss.logger.Infof("servss listen https://%s:%d/%s\n", opt.ListenAddr, opt.ListenPort, opt.WorkPath)
+		srv.ListenConn(servss.handleConnection)
 	} else {
 		servss.logger.Infof("unsupport work mode [%s]\n", opt.WorkMode)
 	}
 
-	return nil
 }
 
 func (servss *Server) initSerizer() {
