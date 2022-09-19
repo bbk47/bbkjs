@@ -1,11 +1,10 @@
 package proxy
 
 import (
+	"bufio"
 	"errors"
-	"fmt"
 	"github.com/bbk47/toolbox"
 	"net"
-	"net/http"
 	"strings"
 )
 
@@ -28,26 +27,33 @@ func (s *ConnectProxy) GetAddr() []byte {
 	return s.addrBuf
 }
 
-func NewConnectProxy(writer http.ResponseWriter, req *http.Request) (sss *ConnectProxy, err error) {
+//CONNECT server.example.com:80 HTTP/1.1
+//Host: server.example.com:80
+//Proxy-Authorization: basic aGVsbG86d29ybGQ=
+func NewConnectProxy(conn net.Conn) (sss *ConnectProxy, err error) {
 	sss = &ConnectProxy{}
 	// 1. receive CONNECT request..
-	writer.WriteHeader(http.StatusOK)
-	hijacker, ok := writer.(http.Hijacker)
-	if !ok {
-		return nil, errors.New("Hijacking not supported")
+	rd := bufio.NewReader(conn)
+	line, err := rd.ReadString('\n')
+	if err != nil {
+		return nil, errors.New("CONNECT token read failed!" + err.Error())
 	}
-	client_conn, _, err := hijacker.Hijack()
+	words := strings.Split(line, " ")
+	if words[0] != "CONNECT" {
+		return nil, errors.New("CONNECT token mismatch! get:" + words[0])
+	}
+	_, err = conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 	if err != nil {
 		return nil, err
 	}
-
+	chost := words[1]
 	// 3. sends a HEADERS frame containing a 2xx series status code to the client, as defined in [RFC7231], Section 4.3.6
-	res1 := strings.Split(req.Host, ":")
+	res1 := strings.Split(chost, ":")
 	hostname := res1[0]
 	port := res1[1]
-
-	fmt.Printf("======build socks5 packet...%s\n", req.Host)
+	//
+	//fmt.Printf("======build socks5 packet...%s\n", req.Host)
 	addr := toolbox.BuildSocks5AddrData(hostname, port)
-	sss = &ConnectProxy{conn: client_conn, addrBuf: addr}
+	sss = &ConnectProxy{conn: conn, addrBuf: addr}
 	return sss, nil
 }

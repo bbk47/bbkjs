@@ -11,7 +11,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -211,29 +210,6 @@ func (cli *Client) sendRemoteFrame(frame *protocol.Frame) {
 	}
 
 }
-func (cli *Client) handleSocks5Conn(conn net.Conn) {
-	proxyConn, err := proxy.NewSocks5Proxy(conn)
-	if err != nil {
-		cli.logger.Errorf("create proxy err:%s\n", err.Error())
-		return
-	}
-	cli.bindProxySocket(proxyConn)
-}
-
-func (cli *Client) handleConnectReq(writer http.ResponseWriter, request *http.Request) {
-	if request.Method == http.MethodConnect {
-		proxyConn, err := proxy.NewConnectProxy(writer, request)
-		if err != nil {
-			cli.logger.Errorf("create proxy err:%s\n", err.Error())
-			return
-		}
-		cli.bindProxySocket(proxyConn)
-	} else {
-		writer.Write([]byte("welcome to bbk client!"))
-		//handleHTTP(w, r)
-	}
-
-}
 
 func (cli *Client) bindProxySocket(proxysvc proxy.Proxy) {
 	defer proxysvc.Close()
@@ -306,40 +282,37 @@ func (client *Client) keepPingWs() {
 	}()
 }
 
-func (cli *Client) initSocks5Server() {
-	opt := cli.opts
-	listenAddrPort := fmt.Sprintf("%s:%d", opt.ListenAddr, opt.ListenPort)
-	server, err := net.Listen("tcp", listenAddrPort)
+func (cli *Client) initProxyServer(port int, isConnect bool) {
+	srv, err := proxy.NewProxyServer(cli.opts.ListenAddr, port)
 	if err != nil {
 		cli.logger.Fatalf("Listen failed: %v\n", err)
+		return
 	}
-	cli.logger.Infof("server listen on socks5://%v\n", listenAddrPort)
-	for {
-		conn, err := server.Accept()
-		if err != nil {
-			cli.logger.Errorf("Accept failed: %v", err)
-			continue
-		}
-		go cli.handleSocks5Conn(conn)
-	}
-}
-
-func (cli *Client) initConnectServer() {
-	opt := cli.opts
-
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		cli.handleConnectReq(writer, request)
+	cli.logger.Infof("proxy server listen on %s\n", srv.GetAddr())
+	srv.ListenConn(func(conn net.Conn) {
+		go func() {
+			var proxyConn proxy.Proxy
+			var err error
+			if isConnect == true {
+				proxyConn, err = proxy.NewConnectProxy(conn)
+			} else {
+				proxyConn, err = proxy.NewSocks5Proxy(conn)
+			}
+			if err != nil {
+				cli.logger.Errorf("create proxy err:%s\n", err.Error())
+				return
+			}
+			cli.bindProxySocket(proxyConn)
+		}()
 	})
-	localtion := fmt.Sprintf("%s:%s", opt.ListenAddr, fmt.Sprintf("%v", opt.ListenHttpPort))
-	cli.logger.Infof("connect listen on http://%s\n", localtion)
-	log.Fatal(http.ListenAndServe(localtion, handler))
 }
 
 func (cli *Client) initServer() {
-	if cli.opts.ListenHttpPort > 1080 {
-		go cli.initConnectServer()
+	opt := cli.opts
+	if opt.ListenHttpPort > 1080 {
+		go cli.initProxyServer(opt.ListenHttpPort, true)
 	}
-	cli.initSocks5Server()
+	cli.initProxyServer(opt.ListenPort, false)
 }
 
 func (cli *Client) initSerizer() {
