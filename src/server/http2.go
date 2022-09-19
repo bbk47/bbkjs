@@ -10,6 +10,7 @@ import (
 )
 
 type AbcHttp2Server struct {
+	addr        string
 	sslcrt      string
 	sslkey      string
 	server      *http.Server
@@ -55,6 +56,10 @@ func (h2a *AbcHttp2Server) ListenConn(handler func(conn *TunnelConn)) {
 	}
 }
 
+func (h2a *AbcHttp2Server) GetAddr() string {
+	return h2a.addr
+}
+
 func NewAbcHttp2Server(host string, port int, path string, sslCrt, sslKey string) (h2a *AbcHttp2Server, err error) {
 	address := fmt.Sprintf("%s:%d", host, port)
 	h2a = &AbcHttp2Server{path: path, sslkey: sslKey, sslcrt: sslCrt}
@@ -65,6 +70,7 @@ func NewAbcHttp2Server(host string, port int, path string, sslCrt, sslKey string
 	if err != nil {
 		return nil, err
 	}
+	h2a.addr = fmt.Sprintf("https://%s:%d%s", host, port, path)
 	h2a.listener = ln
 	h2a.server = srv
 

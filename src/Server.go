@@ -4,11 +4,11 @@ import (
 	"bbk/src/protocol"
 	"bbk/src/server"
 	"bbk/src/transport"
+	"bbk/src/utils"
 	"fmt"
 	"github.com/bbk47/toolbox"
 	"io"
 	"net"
-	"os"
 	"sync"
 )
 
@@ -50,6 +50,7 @@ func NewServer(opt Option) Server {
 	s.opts = opt
 	s.targetDict = make(map[string]*Target)
 
+	s.logger = utils.NewLogger("S", opt.LogLevel)
 	return s
 }
 
@@ -231,7 +232,6 @@ func (servss *Server) sendRespFrame(connobj *ConnectObj, frame *protocol.Frame) 
 	err := connobj.tconn.SendPacket(binaryData)
 	if err != nil {
 		servss.releaseTunnel(connobj)
-		return
 	}
 }
 
@@ -243,44 +243,32 @@ func (servss *Server) flushRespFrame(connobj *ConnectObj, frame *protocol.Frame)
 	}
 }
 
+func (servss *Server) checkServerOk(srv server.FrameServer, err error) {
+	if err != nil {
+		servss.logger.Fatalf("create server failed: %v\n", err)
+		return
+	}
+	servss.logger.Infof("server listen %s\n", srv.GetAddr())
+	srv.ListenConn(servss.handleConnection)
+}
+
 func (servss *Server) initServer() {
 	opt := servss.opts
 	if opt.WorkMode == "tcp" {
 		srv, err := server.NewAbcTcpServer(opt.ListenAddr, opt.ListenPort)
-		if err != nil {
-			servss.logger.Fatalf("create server failed: %v\n", err)
-			return
-		}
-		servss.logger.Infof("servss listen tcp://%s:%d\n", opt.ListenAddr, opt.ListenPort)
-		srv.ListenConn(servss.handleConnection)
+		servss.checkServerOk(srv, err)
 	} else if opt.WorkMode == "tls" {
 		srv, err := server.NewAbcTlsServer(opt.ListenAddr, opt.ListenPort, opt.SslCrt, opt.SslKey)
-		if err != nil {
-			servss.logger.Fatalf("create server failed: %v\n", err)
-			return
-		}
-		servss.logger.Infof("servss listen tls://%s:%d\n", opt.ListenAddr, opt.ListenPort)
-		srv.ListenConn(servss.handleConnection)
+		servss.checkServerOk(srv, err)
 	} else if opt.WorkMode == "ws" {
 		srv, err := server.NewAbcWssServer(opt.ListenAddr, opt.ListenPort, opt.WorkPath)
-		if err != nil {
-			servss.logger.Fatalf("create server failed: %v\n", err)
-			return
-		}
-		servss.logger.Infof("servss listen ws://%s:%d/%s\n", opt.ListenAddr, opt.ListenPort, opt.WorkPath)
-		srv.ListenConn(servss.handleConnection)
+		servss.checkServerOk(srv, err)
 	} else if opt.WorkMode == "h2" {
 		srv, err := server.NewAbcHttp2Server(opt.ListenAddr, opt.ListenPort, opt.WorkPath, opt.SslCrt, opt.SslKey)
-		if err != nil {
-			servss.logger.Fatalf("create server failed: %v\n", err)
-			return
-		}
-		servss.logger.Infof("servss listen https://%s:%d/%s\n", opt.ListenAddr, opt.ListenPort, opt.WorkPath)
-		srv.ListenConn(servss.handleConnection)
+		servss.checkServerOk(srv, err)
 	} else {
 		servss.logger.Infof("unsupport work mode [%s]\n", opt.WorkMode)
 	}
-
 }
 
 func (servss *Server) initSerizer() {
@@ -290,16 +278,9 @@ func (servss *Server) initSerizer() {
 		servss.logger.Fatal(err)
 	}
 	servss.serizer = serizer
-
-}
-
-func (servss *Server) initLogger() {
-	servss.logger = toolbox.Log.NewLogger(os.Stdout, "S")
-	servss.logger.SetLevel(servss.opts.LogLevel)
 }
 
 func (servss *Server) Bootstrap() {
-	servss.initLogger()
 	servss.initSerizer()
 	servss.initServer()
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 )
 
 type AbcTlsServer struct {
@@ -19,6 +20,14 @@ func (tcpss *AbcTlsServer) ListenConn(handler func(conn *TunnelConn)) {
 		wrapConn := &TunnelConn{Tuntype: "tls", tcpSocket: conn}
 		handler(wrapConn)
 	}
+}
+
+func (wss *AbcTlsServer) ListenHttpConn(httpHandler func(http.ResponseWriter, *http.Request)) {
+	// nothing to do
+}
+
+func (tcpss *AbcTlsServer) GetAddr() string {
+	return "tls://" + tcpss.listener.Addr().String()
 }
 
 func NewAbcTlsServer(host string, port int, sslCrt, sslKey string) (svc *AbcTlsServer, err error) {

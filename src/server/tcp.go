@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"net/http"
 )
 
 type AbcTcpServer struct {
@@ -18,6 +19,14 @@ func (tcpss *AbcTcpServer) ListenConn(handler func(conn *TunnelConn)) {
 		wrapConn := &TunnelConn{Tuntype: "tcp", tcpSocket: conn}
 		handler(wrapConn)
 	}
+}
+
+func (wss *AbcTcpServer) ListenHttpConn(httpHandler func(http.ResponseWriter, *http.Request)) {
+	// nothing to do
+}
+
+func (tcpss *AbcTcpServer) GetAddr() string {
+	return "tcp://" + tcpss.listener.Addr().String()
 }
 
 func NewAbcTcpServer(host string, port int) (svc *AbcTcpServer, err error) {

@@ -11,6 +11,7 @@ import (
 var upgrader = websocket.Upgrader{} // use default options
 
 type AbcWssServer struct {
+	addr        string
 	server      *http.Server
 	listener    net.Listener
 	path        string
@@ -51,6 +52,10 @@ func (wss *AbcWssServer) ListenConn(handler func(conn *TunnelConn)) {
 	}
 }
 
+func (wss *AbcWssServer) GetAddr() string {
+	return wss.addr
+}
+
 func NewAbcWssServer(host string, port int, path string) (wss *AbcWssServer, err error) {
 	address := fmt.Sprintf("%s:%d", host, port)
 	wss = &AbcWssServer{path: path}
@@ -60,6 +65,7 @@ func NewAbcWssServer(host string, port int, path string) (wss *AbcWssServer, err
 	if err != nil {
 		return nil, err
 	}
+	wss.addr = fmt.Sprintf("ws://%s:%d%s", host, port, path)
 	wss.listener = ln
 	wss.server = server
 

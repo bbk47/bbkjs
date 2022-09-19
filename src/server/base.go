@@ -5,6 +5,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/posener/h2conn"
 	"net"
+	"net/http"
 )
 
 type TunnelConn struct {
@@ -37,4 +38,6 @@ func (tconn *TunnelConn) SendPacket(data []byte) (err error) {
 
 type FrameServer interface {
 	ListenConn(handler func(conn *TunnelConn))
+	ListenHttpConn(httpHandler func(http.ResponseWriter, *http.Request))
+	GetAddr() string
 }
