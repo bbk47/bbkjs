@@ -277,7 +277,7 @@ func (client *Client) keepPingWs() {
 		for range ticker {
 			data := toolbox.GetNowInt64Bytes()
 			pingFrame := protocol.Frame{Cid: "00000000000000000000000000000000", Type: protocol.PING_FRAME, Data: data}
-			client.sendRemoteFrame(&pingFrame)
+			client.flushRemoteFrame(&pingFrame)
 		}
 	}()
 }
