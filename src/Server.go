@@ -95,7 +95,7 @@ func (servss *Server) handleConnMessage(connectObj *ConnectObj, buf []byte) {
 		servss.logger.Errorf("derialize data err:%s", err.Error())
 		return
 	}
-	servss.logger.Debugf("read. ws tunnel cid:%s, data[%d]bytes\n", frame.Cid, len(buf))
+	servss.logger.Debugf("read tunnel cid:%s, data[%d]bytes\n", frame.Cid, len(buf))
 	if frame.Type == protocol.PING_FRAME {
 		timebs := toolbox.GetNowInt64Bytes()
 		data := append(frame.Data, timebs...)

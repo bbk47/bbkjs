@@ -102,7 +102,7 @@ func (cli *Client) receiveTunData() {
 			return
 		}
 
-		cli.logger.Debugf("read. ws tunnel cid:%s, data[%d]bytes\n", respFrame.Cid, len(packet))
+		cli.logger.Debugf("read tunnel cid:%s, data[%d]bytes\n", respFrame.Cid, len(packet))
 		if respFrame.Type == protocol.PONG_FRAME {
 			stByte := respFrame.Data[:13]
 			atByte := respFrame.Data[13:26]
@@ -117,7 +117,7 @@ func (cli *Client) receiveTunData() {
 			upms := int64((at)) - int64(st)
 			downms := nowst - int64(at)
 
-			cli.logger.Infof("ws tunnel health！ up:%dms, down:%dms, rtt:%dms", upms, downms, nowst-int64(st))
+			cli.logger.Infof("tunnel health！ up:%dms, down:%dms, rtt:%dms", upms, downms, nowst-int64(st))
 		} else {
 			cli.flushLocalFrame(respFrame)
 		}
