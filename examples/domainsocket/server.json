@@ -1,0 +1,8 @@
+{
+    "mode": "server",
+    "logLevel": "info",
+    "method": "aes-256-cfb",
+    "password": "p@ssword",
+    "workPath": "/tmp/bbk_socket",
+    "workMode": "domainsocket"
+}

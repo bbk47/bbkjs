@@ -1,0 +1,11 @@
+{
+    "mode": "client",
+    "listenAddr": "0.0.0.0",
+    "listenPort": 1090,
+    "logLevel": "info",
+    "tunnelOpts": {
+        "protocol": "domainsocket",
+        "path": "/tmp/bbk_socket"
+    },
+    "ping": true
+}
