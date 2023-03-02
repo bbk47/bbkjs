@@ -6,8 +6,7 @@
     "logLevel": "info",
     "tunnelOpts": {
         "protocol": "h2",
-        "secure": false,
-        "host": "127.0.0.1",
+        "host": "localhost",
         "port": "5900",
         "path": "/websocket",
         "method": "aes-256-cfb",
