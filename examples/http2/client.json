@@ -1,12 +1,18 @@
 {
     "mode":"client",
-    "protocol":"h2",
     "listenAddr": "0.0.0.0",
     "listenPort": 1090,
     "listenHttpPort": 1087,
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
-    "http2Url": "http://127.0.0.1:5900/test",
+    "tunnelOpts": {
+        "protocol": "h2",
+        "host": "localhost",
+        "port": "5900",
+        "path": "/websocket",
+        "method": "aes-256-cfb",
+        "password": "p@ssword"
+    },
     "ping": true
 }
