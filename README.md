@@ -6,14 +6,16 @@ bbk is a powerful tool
 
 ```json
 {
-    "mode":"server",
+    "mode": "server",
     "listenAddr": "127.0.0.1",
     "listenPort": 5900,
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
-    "websocketPath": "/websocket"
+    "workMode": "ws",
+    "workPath": "/websocket"
 }
+
 ```
 
 ```sh
@@ -24,15 +26,23 @@ node bin/bbk.js -c etc/server.json
 
 ```json
 {
-    "mode":"client",
-    "listenAddr": "127.0.0.1",
-    "listenPort": 1080,
+    "mode": "client",
+    "listenAddr": "0.0.0.0",
+    "listenPort": 1090,
+    "listenHttpPort": 1087,
     "logLevel": "info",
-    "method": "aes-256-cfb",
-    "password": "p@ssword",
-    "websocketUrl": "ws://127.0.0.1:5900/websocket",
+    "tunnelOpts": {
+        "protocol": "ws",
+        "secure": false,
+        "host": "127.0.0.1",
+        "port": "5900",
+        "path": "/websocket",
+        "method": "aes-256-cfb",
+        "password": "p@ssword"
+    },
     "ping": true
 }
+
 ```
 
 ```sh
