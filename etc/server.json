@@ -5,6 +5,6 @@
     "logLevel": "info",
     "method": "aes-256-cfb",
     "password": "p@ssword",
-    "workMode": "tcp",
+    "workMode": "ws",
     "workPath": "/websocket"
 }
