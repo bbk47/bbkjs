@@ -2,13 +2,12 @@
 # yarn lockfile v1
 
 
-"@bbk47/toolbox@1.0.3":
-  version "1.0.3"
-  resolved "https://mirrors.cloud.tencent.com/npm/@bbk47%2ftoolbox/-/toolbox-1.0.3.tgz#310c49114002eebc396d663bfc0363a139f9db1c"
-  integrity sha512-TGogC2H+a3TGw+9LsCcjz543jAggs+14/q+TbacxVgRdI2ZiYJZFaFRErIEN3Y1tpzngdz7YWlN1tmFPTt4GNQ==
+"@bbk47/toolbox@1.0.7":
+  version "1.0.7"
+  resolved "https://registry.npmjs.org/@bbk47/toolbox/-/toolbox-1.0.7.tgz#b6b8a92267e51b45613e5c51d47047e75a0447cb"
+  integrity sha512-m0ilnayCTGwpPOx8iPZZs0627s/VGCoiqH/KTCXfAs/URUMcGG6NSMUejArXaDISGUMcbGSFPpAc8NObXytfaA==
   dependencies:
     date-format "^3.0.0"
-    uuid "^8.3.2"
 
 commander@^8.0.0:
   version "8.0.0"
@@ -29,11 +28,6 @@ ultron@~1.1.0:
   version "1.1.1"
   resolved "https://registry.nlark.com/ultron/download/ultron-1.1.1.tgz#9fe1536a10a664a65266a1e3ccf85fd36302bc9c"
   integrity sha1-n+FTahCmZKZSZqHjzPhf02MCvJw=
-
-uuid@^8.3.2:
-  version "8.3.2"
-  resolved "https://registry.nlark.com/uuid/download/uuid-8.3.2.tgz?cache=0&sync_timestamp=1622213086354&other_urls=https%3A%2F%2Fregistry.nlark.com%2Fuuid%2Fdownload%2Fuuid-8.3.2.tgz#80d5b5ced271bb9af6c445f21a1a04c606cefbe2"
-  integrity sha1-gNW1ztJxu5r2xEXyGhoExgbO++I=
 
 ws@2.3.x:
   version "2.3.1"
