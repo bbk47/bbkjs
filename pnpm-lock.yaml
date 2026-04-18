@@ -1,0 +1,73 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@bbk47/toolbox':
+        specifier: file:../toolboxjs
+        version: file:../toolboxjs
+      commander:
+        specifier: ^8.0.0
+        version: 8.3.0
+      ws:
+        specifier: 2.3.x
+        version: 2.3.1
+
+packages:
+
+  '@bbk47/toolbox@file:../toolboxjs':
+    resolution: {directory: ../toolboxjs, type: directory}
+
+  commander@8.3.0:
+    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
+    engines: {node: '>= 12'}
+
+  date-format@3.0.0:
+    resolution: {integrity: sha512-eyTcpKOcamdhWJXj56DpQMo1ylSQpcGtGKXcU0Tb97+K56/CF5amAqqqNj0+KvA0iw2ynxtHWFsPDSClCxe48w==}
+    engines: {node: '>=4.0'}
+    deprecated: 3.x is no longer supported. Please upgrade to 4.x or higher.
+
+  safe-buffer@5.0.1:
+    resolution: {integrity: sha1-0mPKVGls2KMGtcplUekt5XkY++c=}
+
+  ultron@1.1.1:
+    resolution: {integrity: sha512-UIEXBNeYmKptWH6z8ZnqTeS8fV74zG0/eRU9VGkpzz+LIJNs8W/zM/L+7ctCkRrgbNnnR0xxw4bKOr0cW0N0Og==}
+
+  ws@2.3.1:
+    resolution: {integrity: sha512-61a+9LgtYZxTq1hAonhX8Xwpo2riK4IOR/BIVxioFbCfc3QFKmpE4x9dLExfLHKtUfVZigYa36tThVhO57erEw==}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: ^5.0.2
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
+snapshots:
+
+  '@bbk47/toolbox@file:../toolboxjs':
+    dependencies:
+      date-format: 3.0.0
+      ws: 2.3.1
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  commander@8.3.0: {}
+
+  date-format@3.0.0: {}
+
+  safe-buffer@5.0.1: {}
+
+  ultron@1.1.1: {}
+
+  ws@2.3.1:
+    dependencies:
+      safe-buffer: 5.0.1
+      ultron: 1.1.1
