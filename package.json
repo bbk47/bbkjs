@@ -6,7 +6,7 @@
     "scripts": {
         "start": "node bin/bbk.js",
         "build": "node esbuild.config.mjs",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "node --test"
     },
     "repository": {
         "type": "git",
@@ -16,7 +16,7 @@
     "author": "",
     "license": "ISC",
     "dependencies": {
-        "@bbk47/toolbox": "1.0.8",
+        "@bbk47/toolbox": "^2.0.0",
         "commander": "^8.0.0",
         "ws": "2.3.x"
     },
