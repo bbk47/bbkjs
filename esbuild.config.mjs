@@ -16,12 +16,12 @@ const versionLine = `// bbk - v${pkg.version} - ${buildTime}`;
 
 await esbuild.build({
     entryPoints: [join(__dirname, 'src/bbk.ts')],
-    outfile: join(__dirname, 'bin/bbk.js'),
+    outfile: join(__dirname, 'dist/bbk.min.js'),
     bundle: true,
     platform: 'node',
     target: 'node16',
     format: 'cjs',
-    minify: false,
+    minify: true,
     legalComments: 'none',
     banner: { js: `#!/usr/bin/env node\n${versionLine}` },
     external: ['bufferutil', 'utf-8-validate', 'debug'],
