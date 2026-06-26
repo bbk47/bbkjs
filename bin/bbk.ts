@@ -1,3 +1,4 @@
+#!/usr/bin/env -S node --require tsx/cjs
 import options from '../src/option';
 import { Client, Server } from '../src/index';
 
