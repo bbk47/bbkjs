@@ -15,7 +15,7 @@ const buildTime = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate
 const versionLine = `// bbk - v${pkg.version} - ${buildTime}`;
 
 await esbuild.build({
-    entryPoints: [join(__dirname, 'bin/bbk.js')],
+    entryPoints: [join(__dirname, 'bin/bbk.ts')],
     outfile: join(__dirname, 'dist/bbk.min.js'),
     bundle: true,
     platform: 'node',
@@ -26,3 +26,5 @@ await esbuild.build({
     banner: { js: `#!/usr/bin/env node\n${versionLine}` },
     external: ['bufferutil', 'utf-8-validate', 'debug'],
 });
+
+console.log(`Build complete: dist/bbk.min.js (v${pkg.version} - ${buildTime})`);

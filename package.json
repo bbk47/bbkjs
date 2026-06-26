@@ -4,8 +4,9 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "start": "node bin/bbk.js",
+        "start": "tsx bin/bbk.ts",
         "build": "node esbuild.config.mjs",
+        "typecheck": "tsc --noEmit",
         "test": "node --test --test-force-exit 'test/**/*.test.js'",
         "test:unit": "node --test 'test/unit/*.test.js'",
         "test:integration": "node --test --test-force-exit 'test/integration/*.test.js'",
@@ -24,6 +25,10 @@
         "ws": "2.3.x"
     },
     "devDependencies": {
-        "esbuild": "^0.25.0"
+        "@types/node": "^26.0.1",
+        "@types/ws": "^8.18.1",
+        "esbuild": "^0.25.0",
+        "tsx": "^4.22.4",
+        "typescript": "^6.0.3"
     }
 }
