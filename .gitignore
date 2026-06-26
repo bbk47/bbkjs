@@ -3,3 +3,8 @@ node_modules
 temp
 .DS_Store
 streambook
+dist/
+test.js
+test.json
+test_client.js
+test_server.js
