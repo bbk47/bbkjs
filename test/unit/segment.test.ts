@@ -1,10 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert');
-const frameSegment = require('../../src/protocol/segment').default;
+import test from 'node:test';
+import assert from 'node:assert';
+import frameSegment from '../../src/protocol/segment';
 
 test('小帧不分片', () => {
     const frame = { cid: 1, type: 1, data: Buffer.alloc(100, 0xab) };
-    const parts = [];
+    const parts: typeof frame[] = [];
     frameSegment(frame, (part) => parts.push(part));
     assert.strictEqual(parts.length, 1);
     assert.ok(parts[0].data.equals(frame.data));
@@ -13,7 +13,7 @@ test('小帧不分片', () => {
 test('大帧按 2KB 分片且拼接后等价', () => {
     const payload = Buffer.alloc(5000, 0xcd);
     const frame = { cid: 2, type: 1, data: payload };
-    const parts = [];
+    const parts: typeof frame[] = [];
     frameSegment(frame, (part) => parts.push(part));
 
     assert.ok(parts.length > 1);

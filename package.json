@@ -7,10 +7,10 @@
         "start": "tsx bin/bbk.ts",
         "build": "node esbuild.config.mjs",
         "typecheck": "tsc --noEmit",
-        "test": "node --require tsx/cjs --test --test-force-exit 'test/**/*.test.js'",
-        "test:unit": "node --require tsx/cjs --test 'test/unit/*.test.js'",
-        "test:integration": "node --require tsx/cjs --test --test-force-exit 'test/integration/*.test.js'",
-        "test:e2e": "node --require tsx/cjs --test --test-force-exit 'test/e2e/*.test.js'"
+        "test": "node --require tsx/cjs --test --test-force-exit 'test/**/*.test.ts'",
+        "test:unit": "node --require tsx/cjs --test 'test/unit/*.test.ts'",
+        "test:integration": "node --require tsx/cjs --test --test-force-exit 'test/integration/*.test.ts'",
+        "test:e2e": "node --require tsx/cjs --test --test-force-exit 'test/e2e/*.test.ts'"
     },
     "repository": {
         "type": "git",

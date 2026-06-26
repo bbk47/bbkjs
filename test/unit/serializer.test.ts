@@ -1,7 +1,7 @@
-const test = require('node:test');
-const assert = require('node:assert');
-const protocol = require('../../src/protocol');
-const { makeEncryptedSerializer } = require('../helpers/fixtures');
+import test from 'node:test';
+import assert from 'node:assert';
+import * as protocol from '../../src/protocol';
+import { makeEncryptedSerializer } from '../helpers/fixtures';
 
 test('加密序列化器 encrypt/decrypt 往返', () => {
     const ser = makeEncryptedSerializer();

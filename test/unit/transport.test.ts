@@ -1,19 +1,19 @@
-const test = require('node:test');
-const assert = require('node:assert');
-const { PassThrough } = require('stream');
-const transport = require('../../src/transport');
+import test from 'node:test';
+import assert from 'node:assert';
+import { PassThrough } from 'stream';
+import { wrapSocket } from '../../src/transport';
 
 test('tcpsocketSend + bindStreamSocket 按 2 字节长度前缀分帧', () => {
-    const received = [];
+    const received: Buffer[] = [];
     const stream = new PassThrough();
-    transport.wrapSocket('tcp', stream).bindEvents(
+    wrapSocket('tcp', stream as any).bindEvents(
         (buf) => received.push(Buffer.from(buf)),
         () => {},
         () => {}
     );
 
     const payload = Buffer.from('hello-bbk');
-    const ts = transport.wrapSocket('tcp', stream);
+    const ts = wrapSocket('tcp', stream as any);
     ts.sendPacket(payload);
     ts.sendPacket(Buffer.from([0x01, 0x02]));
 
@@ -23,9 +23,9 @@ test('tcpsocketSend + bindStreamSocket 按 2 字节长度前缀分帧', () => {
 });
 
 test('半包缓存：分两次 write 仍能拼出完整 packet', () => {
-    const received = [];
+    const received: Buffer[] = [];
     const stream = new PassThrough();
-    transport.wrapSocket('tcp', stream).bindEvents(
+    wrapSocket('tcp', stream as any).bindEvents(
         (buf) => received.push(Buffer.from(buf)),
         () => {},
         () => {}

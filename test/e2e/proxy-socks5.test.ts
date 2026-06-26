@@ -1,10 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert');
-const path = require('path');
-const { spawnSync } = require('child_process');
+import test from 'node:test';
+import assert from 'node:assert';
+import path from 'path';
+import { spawnSync } from 'child_process';
 
 test('e2e：Client(socks5) -> Server(tcp) -> Echo 目标全链路', { timeout: 20000 }, () => {
-    const script = path.join(__dirname, 'run-proxy.js');
+    const script = path.join(__dirname, 'run-proxy.ts');
     const result = spawnSync(process.execPath, ['--require', 'tsx/cjs', script], {
         cwd: path.join(__dirname, '../..'),
         encoding: 'utf8',

@@ -1,14 +1,12 @@
-const net = require('net');
+import * as net from 'net';
 
-function getFreePort(host = '127.0.0.1') {
+export function getFreePort(host = '127.0.0.1'): Promise<number> {
     return new Promise((resolve, reject) => {
         const server = net.createServer();
         server.once('error', reject);
         server.listen(0, host, () => {
-            const { port } = server.address();
+            const { port } = server.address() as net.AddressInfo;
             server.close(() => resolve(port));
         });
     });
 }
-
-module.exports = { getFreePort };

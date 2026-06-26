@@ -1,21 +1,20 @@
-const test = require('node:test');
-const assert = require('node:assert');
-const crypto = require('crypto');
-const { buildSocks5Addr } = require('@bbk47/toolbox').socks5;
+import test from 'node:test';
+import assert from 'node:assert';
+import crypto from 'crypto';
+import * as net from 'net';
+import { socks5 } from '@bbk47/toolbox';
+import StubWorker from '../../src/stub';
+import { createTcpTransport } from '../../src/transport';
+import Server from '../../src/Server';
+import { getFreePort } from '../helpers/ports';
+import { makeEncryptedSerializer, makeServerConfig, setupStubPair, TEST_PASSWORD, TEST_METHOD } from '../helpers/fixtures';
+import { startEchoServer } from '../helpers/servers';
 
-const StubWorker = require('../../src/stub').default;
-const { createTcpTransport } = require('../../src/transport');
-const Server = require('../../src/Server').default;
-const { getFreePort } = require('../helpers/ports');
-const { makeEncryptedSerializer, makeServerConfig, TEST_PASSWORD, TEST_METHOD } = require('../helpers/fixtures');
-const { startEchoServer } = require('../helpers/servers');
+const { buildSocks5Addr } = socks5;
 
-function closeNetServer(server) {
+function closeNetServer(server: net.Server | undefined): Promise<void> {
     return new Promise((resolve) => {
-        if (!server || !server.listening) {
-            resolve();
-            return;
-        }
+        if (!server || !server.listening) { resolve(); return; }
         server.close(() => resolve());
     });
 }
@@ -26,13 +25,13 @@ test('StubWorker 经真实 TCP + 加密序列化器双向回显', async (t) => {
 
     const brokerPort = await getFreePort();
     const serverCfg = makeServerConfig({ listenPort: brokerPort, workMode: 'tcp' });
-    const broker = new Server(serverCfg);
+    const broker = new Server(serverCfg as any);
     broker.bootstrap();
 
-    const tsport = await new Promise((resolve, reject) => {
-        let transport;
+    const tsport = await new Promise<ReturnType<typeof createTcpTransport>>((resolve, reject) => {
+        let transport: ReturnType<typeof createTcpTransport>;
         transport = createTcpTransport({ host: '127.0.0.1', port: brokerPort }, () => resolve(transport));
-        transport.conn.once('error', reject);
+        (transport.conn as net.Socket).once('error', reject);
     });
     const clientStub = new StubWorker(tsport, makeEncryptedSerializer(TEST_PASSWORD, TEST_METHOD));
 
@@ -40,16 +39,16 @@ test('StubWorker 经真实 TCP + 加密序列化器双向回显', async (t) => {
     const cs = clientStub.startStream(addr);
     cs.on('error', () => {});
 
-    await new Promise((resolve, reject) => {
-        clientStub.once('stream', resolve);
+    await new Promise<void>((resolve, reject) => {
+        clientStub.once('stream', resolve as any);
         clientStub.once('error', reject);
         setTimeout(() => reject(new Error('stream ready timeout')), 5000);
     });
 
     const payload = crypto.randomBytes(64 * 1024);
-    const recv = await new Promise((resolve, reject) => {
-        const chunks = [];
-        cs.on('data', (d) => chunks.push(d));
+    const recv = await new Promise<Buffer>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        cs.on('data', (d: Buffer) => chunks.push(d));
         cs.on('end', () => resolve(Buffer.concat(chunks)));
         cs.on('error', reject);
         cs.end(payload);
@@ -57,14 +56,13 @@ test('StubWorker 经真实 TCP + 加密序列化器双向回显', async (t) => {
 
     assert.ok(recv.equals(payload));
     clientStub.close();
-    await closeNetServer(broker._server);
+    await closeNetServer((broker as any)._server);
 });
 
 test('加密 StubWorker loopback 多路复用两条流互不干扰', async () => {
-    const { client, server } = require('../helpers/fixtures').setupStubPair({ encrypted: true });
+    const { client, server } = setupStubPair({ encrypted: true });
 
-    const results = {};
-    server.on('stream', (stream, addr) => {
+    server.on('stream', (stream: any, addr: Buffer) => {
         server.setReady(stream);
         const port = addr.readUInt16BE(addr.length - 2);
         stream.on('data', () => stream.write(Buffer.from(`p${port}`)));
@@ -72,14 +70,14 @@ test('加密 StubWorker loopback 多路复用两条流互不干扰', async () =>
         stream.on('error', () => {});
     });
 
-    async function openStream(port) {
+    async function openStream(port: number): Promise<string> {
         const addr = buildSocks5Addr('127.0.0.1', port);
         const cs = client.startStream(addr);
         cs.on('error', () => {});
-        await new Promise((resolve) => client.once('stream', resolve));
-        return new Promise((resolve, reject) => {
-            const chunks = [];
-            cs.on('data', (d) => chunks.push(d));
+        await new Promise<void>((resolve) => client.once('stream', resolve as any));
+        return new Promise<string>((resolve, reject) => {
+            const chunks: Buffer[] = [];
+            cs.on('data', (d: Buffer) => chunks.push(d));
             cs.on('end', () => resolve(Buffer.concat(chunks).toString()));
             cs.on('error', reject);
             cs.end(Buffer.from('x'));
