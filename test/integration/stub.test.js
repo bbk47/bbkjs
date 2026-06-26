@@ -1,62 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const EventEmitter = require('events');
 const crypto = require('crypto');
+const EventEmitter = require('events');
 
-const StubWorker = require('../lib/stub');
-const protocol = require('../lib/protocol');
-
-// 无加密的 protocol 序列化器（测试用，免去 @bbk47/toolbox 依赖）
-const makeSerializer = () => ({
-    serialize: (frame) => protocol.encode(frame),
-    derialize: (buf) => protocol.decode(buf),
-});
-
-// 内存 loopback transport：两端互联，每个 packet 异步投递给对端，保持 FIFO 顺序
-class MockTransport {
-    constructor() {
-        this.conn = null;
-        this._closed = false;
-        this.peer = null;
-    }
-    bindEvents(onData, onError, onClose) {
-        this.onData = onData;
-        this.onError = onError;
-        this.onClose = onClose;
-    }
-    sendPacket(buf) {
-        if (this._closed) throw new Error('transport closed');
-        const peer = this.peer;
-        const copy = Buffer.from(buf);
-        setImmediate(() => {
-            if (peer && peer.onData && !peer._closed) peer.onData(copy);
-        });
-    }
-    close() {
-        this._closed = true;
-    }
-}
-
-function createLoopback() {
-    const a = new MockTransport();
-    const b = new MockTransport();
-    a.peer = b;
-    b.peer = a;
-    return [a, b];
-}
-
-// socks5 ipv4 地址 buffer：127.0.0.1:80
-const ADDR = Buffer.from([0x01, 127, 0, 0, 1, 0x00, 0x50]);
-
-function setupPair() {
-    const [ta, tb] = createLoopback();
-    const client = new StubWorker(ta, makeSerializer());
-    const server = new StubWorker(tb, makeSerializer());
-    return { client, server, ta, tb };
-}
+const protocol = require('../../lib/protocol');
+const { ADDR, setupStubPair, makePlainSerializer } = require('../helpers/fixtures');
 
 test('握手：startStream -> 服务端收到 stream(addr)，setReady -> 客户端收到 stream', async () => {
-    const { client, server } = setupPair();
+    const { client, server } = setupStubPair();
     const got = await new Promise((resolve) => {
         server.on('stream', (stream, addr) => {
             server.setReady(stream);
@@ -72,7 +23,7 @@ test('握手：startStream -> 服务端收到 stream(addr)，setReady -> 客户�
 });
 
 test('双向回显 + 流控 + 分片：1MB 数据完整往返', async () => {
-    const { client, server } = setupPair();
+    const { client, server } = setupStubPair();
     server.on('stream', (stream) => {
         server.setReady(stream);
         stream.on('data', (d) => stream.write(d));
@@ -99,7 +50,7 @@ test('双向回显 + 流控 + 分片：1MB 数据完整往返', async () => {
 });
 
 test('半关闭：客户端 end 后服务端仍可回发数据', async () => {
-    const { client, server } = setupPair();
+    const { client, server } = setupStubPair();
     const events = [];
     server.on('stream', (stream) => {
         server.setReady(stream);
@@ -129,7 +80,7 @@ test('半关闭：客户端 end 后服务端仍可回发数据', async () => {
 });
 
 test('RST：客户端 destroy 流 -> 服务端对应流被复位关闭', async () => {
-    const { client, server } = setupPair();
+    const { client, server } = setupStubPair();
     const serverStreamP = new Promise((resolve) => {
         server.on('stream', (stream) => {
             server.setReady(stream);
@@ -151,16 +102,16 @@ test('RST：客户端 destroy 流 -> 服务端对应流被复位关闭', async (
 });
 
 test('未知流的数据帧触发对端 RST', async () => {
-    const { client, server, ta } = setupPair();
+    const { client, server, ta } = setupStubPair();
     const cid = 123456;
-    const ser = makeSerializer();
+    const ser = makePlainSerializer();
     const pkt = ser.serialize({ cid, type: protocol.STREAM_FRAME, data: Buffer.from([1, 2, 3]) });
 
     const rstSeen = new Promise((resolve) => {
         const origOnData = ta.onData;
         ta.onData = (packet) => {
             try {
-                const f = makeSerializer().derialize(packet);
+                const f = makePlainSerializer().derialize(packet);
                 if (f.type === protocol.RST_FRAME && f.cid === cid) resolve(true);
             } catch (e) {}
             origOnData(packet);
@@ -174,7 +125,7 @@ test('未知流的数据帧触发对端 RST', async () => {
 });
 
 test('ping/pong 健康检查', async () => {
-    const { client, server } = setupPair();
+    const { client, server } = setupStubPair();
     const pong = new Promise((resolve) => client.on('pong', resolve));
     client.ping();
     const pe = await pong;
@@ -188,7 +139,7 @@ test('调度器：底层连接背压时暂停发送，drain 后恢复', async ()
     const sent = [];
     const fakeSocket = new EventEmitter();
     fakeSocket.write = () => true;
-    fakeSocket.writableLength = 2 * 1024 * 1024; // > 1MB 高水位
+    fakeSocket.writableLength = 2 * 1024 * 1024;
 
     const tsport = {
         conn: fakeSocket,
@@ -196,7 +147,8 @@ test('调度器：底层连接背压时暂停发送，drain 后恢复', async ()
         bindEvents: () => {},
         close: () => {},
     };
-    const sw = new StubWorker(tsport, makeSerializer());
+    const StubWorker = require('../../lib/stub');
+    const sw = new StubWorker(tsport, makePlainSerializer());
 
     sw._sendFrame({ cid: 7, type: protocol.STREAM_FRAME, data: Buffer.from('abc') });
     await new Promise((r) => setImmediate(r));

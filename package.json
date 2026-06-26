@@ -6,7 +6,10 @@
     "scripts": {
         "start": "node bin/bbk.js",
         "build": "node esbuild.config.mjs",
-        "test": "node --test"
+        "test": "node --test --test-force-exit 'test/**/*.test.js'",
+        "test:unit": "node --test 'test/unit/*.test.js'",
+        "test:integration": "node --test --test-force-exit 'test/integration/*.test.js'",
+        "test:e2e": "node --test --test-force-exit 'test/e2e/*.test.js'"
     },
     "repository": {
         "type": "git",
