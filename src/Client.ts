@@ -1,4 +1,5 @@
 import * as net from 'net';
+import * as dgram from 'dgram';
 import { socks5, logger, retry, deferred, proxy, BbkStream } from '@bbk47/toolbox';
 import type { Logger } from '@bbk47/toolbox';
 import serializerFactory from './serializer';
@@ -147,7 +148,44 @@ class Client {
                 callback(new Error('timeout'));
             }
         };
-        isConnect ? proxy.createConnectProxy(cSocket, onConnect) : proxy.createSocks5Proxy(cSocket, onConnect);
+        const onUdpAssociate = async (udpSocket: dgram.Socket, ctrlSocket: net.Socket) => {
+            try {
+                await this.setupEnv();
+            } catch (_err) {
+                udpSocket.close();
+                return;
+            }
+            let browserAddr: dgram.RemoteInfo | null = null;
+
+            const cid = this._stubclient!.startUdpSession((addrBuf: Buffer, payload: Buffer) => {
+                if (!browserAddr) return;
+                const header = Buffer.concat([Buffer.from([0x00, 0x00, 0x00]), addrBuf]);
+                udpSocket.send(Buffer.concat([header, payload]), browserAddr.port, browserAddr.address, (err) => {
+                    if (err) this.logger.warn('udp send to browser error: ' + err.message);
+                });
+            });
+
+            udpSocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+                browserAddr = rinfo;
+                try {
+                    const { addrBuf, payload } = parseSocks5UdpDatagram(msg);
+                    this._stubclient!.sendUdpDatagram(cid, addrBuf, payload);
+                } catch (err) {
+                    this.logger.warn('udp parse error: ' + (err as Error).message);
+                }
+            });
+
+            const cleanup = () => {
+                this._stubclient?.closeUdpSession(cid);
+                try { udpSocket.close(); } catch (_) {}
+            };
+            ctrlSocket.on('close', cleanup);
+            ctrlSocket.on('error', cleanup);
+            udpSocket.on('error', () => {
+                this._stubclient?.closeUdpSession(cid);
+            });
+        };
+        isConnect ? proxy.createConnectProxy(cSocket, onConnect) : proxy.createSocks5Proxy(cSocket, onConnect, onUdpAssociate);
     }
 
     initProxyServer(host: string, port: number, isConnect = false): void {
@@ -169,6 +207,22 @@ class Client {
             setInterval(this.keepConnection.bind(this), 3000);
         }
     }
+}
+
+// SOCKS5 UDP 数据报: RSV(2)+FRAG(1)+ATYP(1)+ADDR(var)+PORT(2)+DATA
+function parseSocks5UdpDatagram(buf: Buffer): { addrBuf: Buffer; payload: Buffer } {
+    const atyp = buf[3];
+    let addrEnd: number;
+    if (atyp === 0x01) {
+        addrEnd = 3 + 1 + 4 + 2;
+    } else if (atyp === 0x03) {
+        addrEnd = 3 + 1 + 1 + buf[4] + 2;
+    } else if (atyp === 0x04) {
+        addrEnd = 3 + 1 + 16 + 2;
+    } else {
+        throw new Error('unsupported SOCKS5 UDP ATYP: ' + atyp);
+    }
+    return { addrBuf: buf.slice(3, addrEnd), payload: buf.slice(addrEnd) };
 }
 
 export default Client;

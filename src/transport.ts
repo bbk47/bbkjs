@@ -6,12 +6,13 @@ import WebSocket from 'ws';
 type TransportType = 'ws' | 'h2' | 'tls' | 'tcp' | 'domainsocket';
 
 type AnyConn = WebSocket | net.Socket | tls.TLSSocket | http2.ClientHttp2Stream;
+type StreamConn = net.Socket | tls.TLSSocket | http2.ClientHttp2Stream;
 
 type DataListener = (data: Buffer) => void;
 type ErrorListener = (err: Error) => void;
 type CloseListener = (code?: number) => void;
 
-function bindStreamSocket(s: net.Socket | tls.TLSSocket, onData: DataListener, onError: ErrorListener, onClose: CloseListener): void {
+function bindStreamSocket(s: StreamConn, onData: DataListener, onError: ErrorListener, onClose: CloseListener): void {
     let buffcache = Buffer.from([]);
     s.on('data', (data: Buffer) => {
         buffcache = Buffer.concat([buffcache, data]);
@@ -40,7 +41,7 @@ function bindWebsocket(ws: WebSocket, onData: DataListener, onError: ErrorListen
     });
 }
 
-function tcpsocketSend(socket: net.Socket | tls.TLSSocket, data: Buffer): void {
+function tcpsocketSend(socket: StreamConn, data: Buffer): void {
     const datalen = data.length;
     if (socket.writable) {
         socket.write(Buffer.concat([Buffer.from([datalen >> 8, datalen % 256]), data]));
@@ -70,7 +71,7 @@ export class Transport {
         if (this.type === 'ws') {
             websocketSend(this.conn as WebSocket, binarydata);
         } else {
-            tcpsocketSend(this.conn as net.Socket, binarydata);
+            tcpsocketSend(this.conn as StreamConn, binarydata);
         }
     }
 
@@ -78,14 +79,18 @@ export class Transport {
         if (this.type === 'ws') {
             bindWebsocket(this.conn as WebSocket, onData, onError, onClose);
         } else {
-            bindStreamSocket(this.conn as net.Socket, onData, onError, onClose);
+            bindStreamSocket(this.conn as StreamConn, onData, onError, onClose);
         }
     }
 
     close(): void {
         try {
-            if (this.type === 'ws' || this.type === 'h2') {
+            if (this.type === 'ws') {
                 (this.conn as WebSocket).close();
+            } else if (this.type === 'h2') {
+                const stream = this.conn as http2.ClientHttp2Stream;
+                stream.close();
+                stream.session?.destroy();
             } else {
                 (this.conn as net.Socket).destroy();
             }

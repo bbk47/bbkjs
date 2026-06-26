@@ -17,6 +17,7 @@ class StubWorker extends EventEmitter {
     tsport: Transport;
     private _serializer: Serializer;
     private _streams: Record<number, BbkStreamEx>;
+    private _udpSessions: Record<number, { onDatagram: (addrBuf: Buffer, payload: Buffer) => void } | null>;
     private _seq: number;
     private _ctrlQueue: protocol.Frame[];
     private _dataQueues: Map<number, protocol.Frame[]>;
@@ -30,6 +31,7 @@ class StubWorker extends EventEmitter {
         this.tsport = tsport;
         this._serializer = serializer;
         this._streams = {};
+        this._udpSessions = {};
         this._seq = 0;
         this._ctrlQueue = [];
         this._dataQueues = new Map();
@@ -229,6 +231,34 @@ class StubWorker extends EventEmitter {
         this._sendFrame({ cid: stream.cid, type: protocol.EST_FRAME, data: stream.addr });
     }
 
+    // ===================== UDP session 管理 =====================
+
+    startUdpSession(onDatagram: (addrBuf: Buffer, payload: Buffer) => void): number {
+        this._seq++;
+        if ((this._seq ^ 0x7fffffff) === 0) this._seq = 1;
+        const cid = this._seq;
+        this._udpSessions[cid] = { onDatagram };
+        this._sendFrame({ cid, type: protocol.UDP_INIT_FRAME, data: Buffer.alloc(0) });
+        return cid;
+    }
+
+    openUdpSession(cid: number, onDatagram: (addrBuf: Buffer, payload: Buffer) => void): void {
+        this._udpSessions[cid] = { onDatagram };
+        this._sendFrame({ cid, type: protocol.EST_FRAME, data: Buffer.alloc(0) });
+    }
+
+    sendUdpDatagram(cid: number, addrBuf: Buffer, payload: Buffer): void {
+        if (this._udpSessions[cid] === undefined) return;
+        const lenBuf = Buffer.from([addrBuf.length >> 8, addrBuf.length & 0xff]);
+        this._sendFrame({ cid, type: protocol.STREAM_FRAME, data: Buffer.concat([lenBuf, addrBuf, payload]) });
+    }
+
+    closeUdpSession(cid: number): void {
+        if (this._udpSessions[cid] === undefined) return;
+        delete this._udpSessions[cid];
+        this._sendFrame({ cid, type: protocol.RST_FRAME, data: Buffer.from([0x1, 0x2]) });
+    }
+
     // ===================== 收包处理 =====================
 
     dataListener(packet: Buffer): void {
@@ -239,11 +269,15 @@ class StubWorker extends EventEmitter {
                 this._sendFrame({ cid: frame.cid, type: protocol.PONG_FRAME, data: buff });
             } else if (frame.type === protocol.PONG_FRAME) {
                 this.emit('pong', { up: frame.atime! - frame.stime!, down: Date.now() - frame.atime! });
+            } else if (frame.type === protocol.UDP_INIT_FRAME) {
+                this._udpSessions[frame.cid] = null;
+                this.emit('udp-session', frame.cid);
             } else if (frame.type === protocol.INIT_FRAME) {
                 const server_stream = this.createStream(frame.cid, frame.data);
                 this._bindStreamLifecycle(server_stream);
                 this.emit('stream', server_stream, server_stream.addr);
             } else if (frame.type === protocol.EST_FRAME) {
+                if (this._udpSessions[frame.cid] !== undefined) return;
                 const client_stream = this._streams[frame.cid];
                 if (!client_stream) {
                     this.resetStream(frame.cid);
@@ -251,6 +285,16 @@ class StubWorker extends EventEmitter {
                 }
                 this.emit('stream', client_stream, client_stream.addr);
             } else if (frame.type === protocol.STREAM_FRAME) {
+                const udpSession = this._udpSessions[frame.cid];
+                if (udpSession !== undefined) {
+                    if (udpSession && typeof udpSession.onDatagram === 'function') {
+                        const addrLen = (frame.data[0] << 8) + frame.data[1];
+                        const addrBuf = frame.data.slice(2, 2 + addrLen);
+                        const payload = frame.data.slice(2 + addrLen);
+                        udpSession.onDatagram(addrBuf, payload);
+                    }
+                    return;
+                }
                 const existStream = this._streams[frame.cid];
                 if (!existStream) {
                     this.resetStream(frame.cid);
@@ -269,6 +313,10 @@ class StubWorker extends EventEmitter {
                 const existStream = this._streams[frame.cid];
                 if (existStream) existStream.remoteFinish();
             } else if (frame.type === protocol.RST_FRAME) {
+                if (this._udpSessions[frame.cid] !== undefined) {
+                    delete this._udpSessions[frame.cid];
+                    return;
+                }
                 const existStream = this._streams[frame.cid];
                 if (existStream) existStream.remoteReset();
             } else {
@@ -296,6 +344,7 @@ class StubWorker extends EventEmitter {
             delete this._streams[temp.cid];
             temp.destroy(err);
         });
+        this._udpSessions = {};
         this._dataQueues.clear();
         this._rr = [];
         this._ctrlQueue = [];

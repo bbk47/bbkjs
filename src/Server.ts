@@ -1,4 +1,5 @@
 import * as net from 'net';
+import * as dgram from 'dgram';
 import { socks5, logger, BbkStream } from '@bbk47/toolbox';
 import type { Logger } from '@bbk47/toolbox';
 
@@ -63,6 +64,7 @@ class Server {
         const tsport = transport.wrapSocket(type as transport.Transport['type'], conn as net.Socket);
         const stubworker = new StubWorker(tsport, this.$serializer);
         stubworker.on('stream', this.handleStream.bind(this, stubworker));
+        stubworker.on('udp-session', this.handleUdpSession.bind(this, stubworker));
         stubworker.on('error', this.handleConnError.bind(this, stubworker));
         stubworker.on('close', this.handleConnClose.bind(this, stubworker));
     }
@@ -88,6 +90,31 @@ class Server {
         targetSocket.on('close', () => stream.destroy());
         targetSocket.on('error', (err) => stream.destroy(err));
         stream.on('error', () => targetSocket.destroy());
+    }
+
+    handleUdpSession(stubworker: StubWorker, cid: number): void {
+        const udpSocket = dgram.createSocket('udp4');
+
+        stubworker.openUdpSession(cid, (addrBuf: Buffer, payload: Buffer) => {
+            const addrInfo = socks5.parseSocks5Addr(addrBuf);
+            this.logger.info(`UDP RELAY ===> ${addrInfo.dstAddr}:${addrInfo.dstPort}`);
+            udpSocket.send(payload, addrInfo.dstPort, addrInfo.dstAddr, (err) => {
+                if (err) this.logger.warn('udp send error: ' + err.message);
+            });
+        });
+
+        udpSocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+            const addrBuf = socks5.buildSocks5Addr(rinfo.address, rinfo.port);
+            stubworker.sendUdpDatagram(cid, addrBuf, msg);
+        });
+
+        udpSocket.on('error', () => {
+            stubworker.closeUdpSession(cid);
+        });
+
+        stubworker.once('close', () => {
+            try { udpSocket.close(); } catch (_) {}
+        });
     }
 
     bootstrap(): void {

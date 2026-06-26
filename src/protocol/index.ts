@@ -8,6 +8,7 @@ export const RST_FRAME = 3;
 export const EST_FRAME = 4;
 export const WINDOW_UPDATE_FRAME = 5;
 export const PING_FRAME = 6;
+export const UDP_INIT_FRAME = 7;
 export const PONG_FRAME = 9;
 
 export interface Frame {
