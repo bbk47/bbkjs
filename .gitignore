@@ -4,6 +4,7 @@ temp
 .DS_Store
 streambook
 dist/
+bin/bbk.js
 test.js
 test.json
 test_client.js

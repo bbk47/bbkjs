@@ -15,16 +15,20 @@ const buildTime = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate
 const versionLine = `// bbk - v${pkg.version} - ${buildTime}`;
 
 await esbuild.build({
-    entryPoints: [join(__dirname, 'bin/bbk.ts')],
-    outfile: join(__dirname, 'dist/bbk.min.js'),
+    entryPoints: [join(__dirname, 'src/bbk.ts')],
+    outfile: join(__dirname, 'bin/bbk.js'),
     bundle: true,
     platform: 'node',
     target: 'node16',
     format: 'cjs',
-    minify: true,
+    minify: false,
     legalComments: 'none',
     banner: { js: `#!/usr/bin/env node\n${versionLine}` },
     external: ['bufferutil', 'utf-8-validate', 'debug'],
 });
 
-console.log(`Build complete: dist/bbk.min.js (v${pkg.version} - ${buildTime})`);
+// 确保产物可执行
+import { chmodSync } from 'fs';
+chmodSync(join(__dirname, 'bin/bbk.js'), 0o755);
+
+console.log(`Build complete: bin/bbk.js (v${pkg.version} - ${buildTime})`);

@@ -4,10 +4,10 @@
     "description": "",
     "main": "src/index.ts",
     "bin": {
-        "bbk": "bin/bbk.ts"
+        "bbk": "bin/bbk.js"
     },
     "scripts": {
-        "start": "tsx bin/bbk.ts",
+        "start": "tsx src/bbk.ts",
         "build": "node esbuild.config.mjs",
         "typecheck": "tsc --noEmit",
         "test": "node --require tsx/cjs --test --test-force-exit 'test/**/*.test.ts'",
