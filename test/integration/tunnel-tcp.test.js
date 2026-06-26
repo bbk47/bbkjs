@@ -3,9 +3,9 @@ const assert = require('node:assert');
 const crypto = require('crypto');
 const { buildSocks5Addr } = require('@bbk47/toolbox').socks5;
 
-const StubWorker = require('../../lib/stub');
-const { createTcpTransport } = require('../../lib/transport');
-const Server = require('../../lib/Server');
+const StubWorker = require('../../src/stub').default;
+const { createTcpTransport } = require('../../src/transport');
+const Server = require('../../src/Server').default;
 const { getFreePort } = require('../helpers/ports');
 const { makeEncryptedSerializer, makeServerConfig, TEST_PASSWORD, TEST_METHOD } = require('../helpers/fixtures');
 const { startEchoServer } = require('../helpers/servers');

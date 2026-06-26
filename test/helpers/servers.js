@@ -1,6 +1,6 @@
 const net = require('net');
-const Server = require('../../lib/Server');
-const Client = require('../../lib/Client');
+const Server = require('../../src/Server').default;
+const Client = require('../../src/Client').default;
 const { getFreePort } = require('./ports');
 
 function startEchoServer(host = '127.0.0.1', port = 0) {

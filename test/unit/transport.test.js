@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { PassThrough } = require('stream');
-const transport = require('../../lib/transport');
+const transport = require('../../src/transport');
 
 test('tcpsocketSend + bindStreamSocket 按 2 字节长度前缀分帧', () => {
     const received = [];

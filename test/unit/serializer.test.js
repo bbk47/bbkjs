@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const protocol = require('../../lib/protocol');
+const protocol = require('../../src/protocol');
 const { makeEncryptedSerializer } = require('../helpers/fixtures');
 
 test('加密序列化器 encrypt/decrypt 往返', () => {

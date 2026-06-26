@@ -5,7 +5,7 @@ const { spawnSync } = require('child_process');
 
 test('e2e：Client(socks5) -> Server(tcp) -> Echo 目标全链路', { timeout: 20000 }, () => {
     const script = path.join(__dirname, 'run-proxy.js');
-    const result = spawnSync(process.execPath, [script], {
+    const result = spawnSync(process.execPath, ['--require', 'tsx/cjs', script], {
         cwd: path.join(__dirname, '../..'),
         encoding: 'utf8',
         timeout: 15000,

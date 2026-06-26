@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const crypto = require('crypto');
 const EventEmitter = require('events');
 
-const protocol = require('../../lib/protocol');
+const protocol = require('../../src/protocol');
 const { ADDR, setupStubPair, makePlainSerializer } = require('../helpers/fixtures');
 
 test('握手：startStream -> 服务端收到 stream(addr)，setReady -> 客户端收到 stream', async () => {
@@ -147,7 +147,7 @@ test('调度器：底层连接背压时暂停发送，drain 后恢复', async ()
         bindEvents: () => {},
         close: () => {},
     };
-    const StubWorker = require('../../lib/stub');
+    const StubWorker = require('../../src/stub').default;
     const sw = new StubWorker(tsport, makePlainSerializer());
 
     sw._sendFrame({ cid: 7, type: protocol.STREAM_FRAME, data: Buffer.from('abc') });

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const frameSegment = require('../../lib/protocol/segment');
+const frameSegment = require('../../src/protocol/segment').default;
 
 test('小帧不分片', () => {
     const frame = { cid: 1, type: 1, data: Buffer.alloc(100, 0xab) };

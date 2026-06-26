@@ -1,6 +1,6 @@
-const protocol = require('../../lib/protocol');
-const serializerFn = require('../../lib/serializer');
-const StubWorker = require('../../lib/stub');
+const protocol = require('../../src/protocol');
+const serializerFn = require('../../src/serializer').default;
+const StubWorker = require('../../src/stub').default;
 const { createLoopback } = require('./loopback');
 
 // socks5 ipv4 地址 buffer：127.0.0.1:80

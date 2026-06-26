@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const protocol = require('../../lib/protocol');
+const protocol = require('../../src/protocol');
 
 test('encode/decode 往返保留 version/type/cid/data', () => {
     const frame = { cid: 21382813, type: protocol.STREAM_FRAME, data: Buffer.from([1, 2, 3, 4]) };
