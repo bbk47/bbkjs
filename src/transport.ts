@@ -2,7 +2,7 @@ import * as net from 'net';
 import * as tls from 'tls';
 import * as http2 from 'http2';
 import { Duplex } from 'stream';
-import WebSocket from 'ws';
+import { WebSocket } from 'ws';
 import { WsConn } from './tunnel/wsconn';
 import type { TunnelOpts } from './option';
 

@@ -182,22 +182,37 @@ export function serveUDP(stream: Duplex, logger?: Logger): void {
 // 数据报(剥掉 RSV+FRAG，校验不分片)按长度前缀写入 stream；stream 回来的记录再
 // 补上 RSV+FRAG 头回送给 app。relay socket 或 stream 任一关闭即结束。
 // 对应 bbk-go ClientUDP。
-export function clientUDP(udpSocket: dgram.Socket, stream: Duplex, logger?: Logger): void {
+//
+// stream 以 Promise 形式传入：toolbox 在 bind relay socket 后会**立即**回 app
+// UDP ASSOCIATE 成功响应，app 随即可能发来数据报，而隧道流(openStream)还要一个
+// 网络往返才就绪。若等到流就绪再挂 'message' 监听，这期间到达的数据报会被
+// Node dgram 直接丢弃(无监听者)——表现为首个/每个 UDP 请求超时。因此这里在
+// 同步阶段就挂上 'message' 监听并缓存早到的数据报，待流就绪后立即回放。
+// (Go 侧不受影响：内核 UDP 收包缓冲会暂存这些早到的数据报。)
+export function clientUDP(udpSocket: dgram.Socket, streamP: Promise<Duplex>, logger?: Logger): void {
     let clientAddr: { address: string; port: number } | null = null;
+    let stream: Duplex | null = null;
+    let closed = false;
+    const pending: Buffer[] = []; // 流就绪前到达的数据报记录(socks5addr+payload)
 
     const close = () => {
+        if (closed) return;
+        closed = true;
         try {
             udpSocket.close();
         } catch (_e) {
             // ignore
         }
-        try {
-            stream.destroy();
-        } catch (_e) {
-            // ignore
+        if (stream) {
+            try {
+                stream.destroy();
+            } catch (_e) {
+                // ignore
+            }
         }
     };
 
+    // 同步挂监听：必须早于任何 await，确保不丢失 app 早到的数据报。
     udpSocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
         if (msg.length < 4) return; // 至少 RSV(2)+FRAG(1)+ATYP(1)
         if (msg[2] !== 0x00) {
@@ -205,25 +220,42 @@ export function clientUDP(udpSocket: dgram.Socket, stream: Duplex, logger?: Logg
             return;
         }
         clientAddr = { address: rinfo.address, port: rinfo.port };
-        const rec = msg.subarray(3); // ATYP+ADDR+PORT+DATA
-        writeDatagram(stream, Buffer.from(rec));
-    });
-    udpSocket.on('error', close);
-    udpSocket.on('close', () => {
-        try {
-            stream.destroy();
-        } catch (_e) {
-            // ignore
+        const rec = Buffer.from(msg.subarray(3)); // ATYP+ADDR+PORT+DATA
+        if (stream) {
+            writeDatagram(stream, rec);
+        } else {
+            pending.push(rec);
         }
     });
+    udpSocket.on('error', close);
 
-    pumpDatagrams(stream, (rec) => {
-        if (!clientAddr) return;
-        const out = Buffer.concat([Buffer.from([0x00, 0x00, 0x00]), rec]); // RSV(2)=0, FRAG=0
-        udpSocket.send(out, clientAddr.port, clientAddr.address, (err) => {
-            if (err) logger?.debug(`udp send to app err:${err.message}`);
-        });
-    });
-    stream.on('close', close);
-    stream.on('end', () => stream.destroy());
+    streamP.then(
+        (s) => {
+            if (closed) {
+                try {
+                    s.destroy();
+                } catch (_e) {
+                    // ignore
+                }
+                return;
+            }
+            stream = s;
+            for (const rec of pending) writeDatagram(s, rec); // 回放早到的数据报
+            pending.length = 0;
+
+            pumpDatagrams(s, (rec) => {
+                if (!clientAddr) return;
+                const out = Buffer.concat([Buffer.from([0x00, 0x00, 0x00]), rec]); // RSV(2)=0, FRAG=0
+                udpSocket.send(out, clientAddr.port, clientAddr.address, (err) => {
+                    if (err) logger?.debug(`udp send to app err:${err.message}`);
+                });
+            });
+            s.on('close', close);
+            s.on('end', () => s.destroy());
+        },
+        (err: Error) => {
+            logger?.warn(`udp associate err:${err.message}`);
+            close();
+        },
+    );
 }

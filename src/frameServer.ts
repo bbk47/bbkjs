@@ -3,7 +3,7 @@ import * as http from 'http';
 import * as tls from 'tls';
 import * as http2 from 'http2';
 import * as url from 'url';
-import WebSocket from 'ws';
+import { WebSocketServer } from 'ws';
 
 type ConnHandler = (conn: unknown) => void;
 type HttpHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void;
@@ -12,7 +12,7 @@ export function createWsServer(workPath: string, handler: ConnHandler, httpHandl
     const server = http.createServer((req, res) => {
         httpHandler && httpHandler(req, res);
     });
-    const wss = new WebSocket.Server({ noServer: true, clientTracking: false });
+    const wss = new WebSocketServer({ noServer: true, clientTracking: false });
     wss.on('connection', (wsconn) => handler(wsconn));
     server.on('upgrade', (request, socket, head) => {
         const pathname = url.parse(request.url ?? '').pathname;

@@ -84,32 +84,30 @@ class Client {
         }
     }
 
-    private async onUdpAssociate(udpSocket: dgram.Socket, ctrlSocket: net.Socket): Promise<void> {
-        let stream: TunnelStream;
-        try {
-            const sess = await this.getSession();
-            stream = await sess.openStream(udpMarkerAddr());
-        } catch (err) {
-            this.logger.warn(`udp associate err:${(err as Error).message}`);
-            try {
-                udpSocket.close();
-            } catch (_e) {
-                // ignore
-            }
-            return;
-        }
+    // 注意：必须同步执行(不能 async/await 在前)，因为 toolbox 在 bind relay socket
+    // 后会立即回 app UDP ASSOCIATE 响应，app 随即可能发数据报。clientUDP 需要在本
+    // 同步阶段就挂上 udpSocket 的 'message' 监听，否则隧道流建立的网络往返期间到达
+    // 的数据报会被 Node dgram 丢弃。隧道流以 Promise 形式传入，由 clientUDP 缓存早
+    // 到的数据报、待流就绪后回放。
+    private onUdpAssociate(udpSocket: dgram.Socket, ctrlSocket: net.Socket): void {
+        const streamP: Promise<TunnelStream> = this.getSession().then((sess) => sess.openStream(udpMarkerAddr()));
+        // 流建立失败不应作为未处理拒绝；clientUDP 已订阅该 Promise 处理失败，这里
+        // 额外吞掉以避免 UnhandledPromiseRejection。
+        streamP.catch(() => undefined);
+
+        clientUDP(udpSocket, streamP, this.logger);
+
         // SOCKS5 规定：控制 TCP 连接关闭即代表 UDP 关联结束。
         // 注意：代理 server 开了 allowHalfOpen，对端 FIN 只触发 'end' 而非 'close'，
         // 必须一并监听 'end'，否则 FIN 关闭时整条 UDP 关联（mux 流 + 两侧 socket +
         // server 空闲定时器）都不会被释放，造成资源泄漏。
         const endAssociate = () => {
-            stream.destroy();
+            streamP.then((s) => s.destroy()).catch(() => undefined);
             ctrlSocket.destroy();
         };
         ctrlSocket.on('end', endAssociate);
         ctrlSocket.on('close', endAssociate);
         ctrlSocket.on('error', endAssociate);
-        clientUDP(udpSocket, stream, this.logger);
     }
 
     private handleProxyConn(isConnect: boolean, cSocket: net.Socket): void {
@@ -120,7 +118,7 @@ class Client {
             proxy.createConnectProxy(cSocket, onConnect);
         } else {
             proxy.createSocks5Proxy(cSocket, onConnect, (udpSocket, ctrlSocket) => {
-                void this.onUdpAssociate(udpSocket, ctrlSocket);
+                this.onUdpAssociate(udpSocket, ctrlSocket);
             });
         }
     }
