@@ -1,6 +1,6 @@
 {
     "name": "bbk",
-    "version": "3.3.1",
+    "version": "4.0.0",
     "description": "",
     "main": "src/index.ts",
     "bin": {
@@ -13,7 +13,8 @@
         "test": "node --require tsx/cjs --test --test-force-exit 'test/**/*.test.ts'",
         "test:unit": "node --require tsx/cjs --test 'test/unit/*.test.ts'",
         "test:integration": "node --require tsx/cjs --test --test-force-exit 'test/integration/*.test.ts'",
-        "test:e2e": "node --require tsx/cjs --test --test-force-exit 'test/e2e/*.test.ts'"
+        "test:e2e": "node --require tsx/cjs --test --test-force-exit 'test/e2e/*.test.ts'",
+        "test:stress": "node --expose-gc --require tsx/cjs --test --test-force-exit 'test/stress/*.ts'"
     },
     "repository": {
         "type": "git",
@@ -24,8 +25,9 @@
     "license": "ISC",
     "dependencies": {
         "@bbk47/toolbox": "^3.0.0",
+        "@bbk47/yamux": "^0.1.0",
         "commander": "^8.0.0",
-        "ws": "2.3.x"
+        "ws": "^8.21.0"
     },
     "devDependencies": {
         "@types/node": "^26.0.1",

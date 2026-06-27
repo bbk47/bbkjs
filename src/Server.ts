@@ -1,17 +1,13 @@
 import * as net from 'net';
-import * as dgram from 'dgram';
-import { socks5, logger, BbkStream } from '@bbk47/toolbox';
+import { socks5, logger } from '@bbk47/toolbox';
 import type { Logger } from '@bbk47/toolbox';
-
-interface BbkStreamEx extends BbkStream {
-    cid: number;
-    addr: Buffer;
-}
-import serializerFactory from './serializer';
-import type { Serializer } from './serializer';
-import * as transport from './transport';
+import { Duplex } from 'stream';
+import type WebSocket from 'ws';
 import * as serverCreater from './frameServer';
-import StubWorker from './stub/index';
+import { SecureConn, Session, WsConn } from './tunnel';
+import type { TunnelStream } from './tunnel';
+import { relay } from './utils';
+import { serveUDP, isUDPMarker } from './proxy/udp';
 import type { AppOptions } from './option';
 
 class Server {
@@ -22,7 +18,6 @@ class Server {
     private listenPort: number;
     private workPath: string;
     private logger: Logger;
-    private $serializer: Serializer;
     _server?: net.Server;
 
     constructor(config: AppOptions) {
@@ -36,21 +31,20 @@ class Server {
         this.listenPort = config.listenPort;
         this.workPath = config.workPath;
         this.logger = logger('s>', (config.logLevel as Parameters<typeof logger>[1]) || 'error', config.logFile);
-        this.$serializer = serializerFactory(config.password, config.method);
     }
 
-    initServer(): void {
-        const handlers: [(conn: unknown) => void] = [this.handleConnection.bind(this, this.workMode)];
+    private initServer(): void {
+        const onConn = (conn: unknown) => this.handleConnection(this.workMode, conn);
         let serve: net.Server;
 
         if (this.workMode === 'ws') {
-            serve = serverCreater.createWsServer(this.workPath, ...handlers);
+            serve = serverCreater.createWsServer(this.workPath, onConn);
         } else if (this.workMode === 'h2') {
-            serve = serverCreater.createHttp2Server(this.tlsOpts, this.workPath, ...handlers) as unknown as net.Server;
+            serve = serverCreater.createHttp2Server(this.tlsOpts, this.workPath, onConn) as unknown as net.Server;
         } else if (this.workMode === 'tls') {
-            serve = serverCreater.createTlsServer(this.tlsOpts, ...handlers);
+            serve = serverCreater.createTlsServer(this.tlsOpts, onConn);
         } else if (this.workMode === 'tcp') {
-            serve = serverCreater.createTcpServer(...handlers);
+            serve = serverCreater.createTcpServer(onConn);
         } else {
             throw new Error('unimplement work mode!' + this.workMode);
         }
@@ -60,65 +54,67 @@ class Server {
         this.logger.info(`broker server listening on ${this.workMode}://${this.listenAddr}:${this.listenPort}${this.workPath}`);
     }
 
-    handleConnection(type: string, conn: unknown): void {
-        const tsport = transport.wrapSocket(type as transport.Transport['type'], conn as net.Socket);
-        const stubworker = new StubWorker(tsport, this.$serializer);
-        stubworker.on('stream', this.handleStream.bind(this, stubworker));
-        stubworker.on('udp-session', this.handleUdpSession.bind(this, stubworker));
-        stubworker.on('error', this.handleConnError.bind(this, stubworker));
-        stubworker.on('close', this.handleConnClose.bind(this, stubworker));
+    // serverCarrier 把接受到的隧道连接转成裸字节流(Duplex)。
+    private serverCarrier(type: string, conn: unknown): Duplex {
+        if (type === 'ws') {
+            return new WsConn(conn as WebSocket);
+        }
+        // h2 stream / tcp / tls 本身即 Duplex 字节流。
+        return conn as Duplex;
     }
 
-    handleConnError(_stubworker: StubWorker, err: Error): void {
-        this.logger.error(`fire event[error] on client!message:${err.message}`);
+    private async handleConnection(type: string, conn: unknown): Promise<void> {
+        const raw = this.serverCarrier(type, conn);
+        let secure: SecureConn;
+        try {
+            secure = await SecureConn.serverSecure(raw, this.opts.method, this.opts.password);
+        } catch (err) {
+            this.logger.error(`secure handshake err:${(err as Error).message}`);
+            raw.destroy();
+            return;
+        }
+        const sess = new Session(secure, true);
+        sess.on('stream', (stream: TunnelStream) => this.handleStream(stream));
+        sess.on('error', (err: Error) => this.logger.error(`session err:${err.message}`));
     }
 
-    handleConnClose(_stubworker: StubWorker, code: number): void {
-        this.logger.error(`fire event[close] on client!code:${code}`);
-    }
+    private handleStream(stream: TunnelStream): void {
+        if (isUDPMarker(stream.addr)) {
+            this.logger.info('REQ UDP ASSOCIATE');
+            stream.setReady();
+            serveUDP(stream, this.logger);
+            return;
+        }
 
-    handleStream(stubworker: StubWorker, stream: BbkStreamEx, addrData: Buffer): void {
-        const targetSocket = new net.Socket();
-        const addrInfo = socks5.parseSocks5Addr(addrData);
-        this.logger.info(`REQ REQUEST ===> ${addrInfo.dstAddr}:${addrInfo.dstPort}`);
-        targetSocket.connect(addrInfo.dstPort, addrInfo.dstAddr, () => {
-            this.logger.info(`connect success. ${addrInfo.dstAddr}:${addrInfo.dstPort}`);
-            stubworker.setReady(stream);
-            stream.pipe(targetSocket);
-            targetSocket.pipe(stream);
+        const addrInfo = socks5.parseSocks5Addr(stream.addr);
+        const remoteAddr = `${addrInfo.dstAddr}:${addrInfo.dstPort}`;
+        this.logger.info(`REQ CONNECT=>${remoteAddr}`);
+
+        const target = new net.Socket({ allowHalfOpen: true });
+        target.setTimeout(15000, () => target.destroy(new Error('dial timeout')));
+        target.connect(addrInfo.dstPort, addrInfo.dstAddr, () => {
+            target.setTimeout(0);
+            this.logger.info(`DIAL SUCCESS==>${remoteAddr}`);
+            stream.setReady();
+            relay(stream, target, this.logger);
         });
-        targetSocket.on('close', () => stream.destroy());
-        targetSocket.on('error', (err) => stream.destroy(err));
-        stream.on('error', () => targetSocket.destroy());
-    }
-
-    handleUdpSession(stubworker: StubWorker, cid: number): void {
-        const udpSocket = dgram.createSocket('udp4');
-
-        stubworker.openUdpSession(cid, (addrBuf: Buffer, payload: Buffer) => {
-            const addrInfo = socks5.parseSocks5Addr(addrBuf);
-            this.logger.info(`UDP RELAY ===> ${addrInfo.dstAddr}:${addrInfo.dstPort}`);
-            udpSocket.send(payload, addrInfo.dstPort, addrInfo.dstAddr, (err) => {
-                if (err) this.logger.warn('udp send error: ' + err.message);
-            });
-        });
-
-        udpSocket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-            const addrBuf = socks5.buildSocks5Addr(rinfo.address, rinfo.port);
-            stubworker.sendUdpDatagram(cid, addrBuf, msg);
-        });
-
-        udpSocket.on('error', () => {
-            stubworker.closeUdpSession(cid);
-        });
-
-        stubworker.once('close', () => {
-            try { udpSocket.close(); } catch (_) {}
+        target.on('error', () => {
+            // 不发就绪状态：client 侧 OpenStream 会收到 FIN/超时（等价旧的"无 EST"）。
+            stream.closeWrite();
+            stream.destroy();
         });
     }
 
     bootstrap(): void {
         this.initServer();
+    }
+
+    close(): void {
+        try {
+            this._server?.close();
+        } catch (_e) {
+            // ignore
+        }
     }
 }
 

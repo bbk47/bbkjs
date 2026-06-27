@@ -3,90 +3,91 @@ import assert from 'node:assert';
 import crypto from 'crypto';
 import * as net from 'net';
 import { socks5 } from '@bbk47/toolbox';
-import StubWorker from '../../src/stub';
-import { createTcpTransport } from '../../src/transport';
-import Server from '../../src/Server';
+import { SecureConn, Session } from '../../src/tunnel';
+import type { TunnelStream } from '../../src/tunnel';
 import { getFreePort } from '../helpers/ports';
-import { makeEncryptedSerializer, makeServerConfig, setupStubPair, TEST_PASSWORD, TEST_METHOD } from '../helpers/fixtures';
-import { startEchoServer } from '../helpers/servers';
+import { TEST_PASSWORD, TEST_METHOD } from '../helpers/fixtures';
 
 const { buildSocks5Addr } = socks5;
 
-function closeNetServer(server: net.Server | undefined): Promise<void> {
-    return new Promise((resolve) => {
-        if (!server || !server.listening) { resolve(); return; }
-        server.close(() => resolve());
+// startTunnelServer 起一个最小的 yamux 隧道服务端：每条流握手后回显其写入数据。
+async function startTunnelServer() {
+    const port = await getFreePort();
+    const sessions: Session[] = [];
+    const server = net.createServer(async (socket) => {
+        try {
+            const secure = await SecureConn.serverSecure(socket, TEST_METHOD, TEST_PASSWORD);
+            const sess = new Session(secure, true);
+            sessions.push(sess);
+            sess.on('error', () => {});
+            sess.on('stream', (stream: TunnelStream) => {
+                stream.setReady();
+                stream.on('error', () => {});
+                stream.pipe(stream); // echo
+            });
+        } catch (_e) {
+            socket.destroy();
+        }
     });
+    await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+    return {
+        port,
+        close: () =>
+            new Promise<void>((resolve) => {
+                sessions.forEach((s) => s.close());
+                server.close(() => resolve());
+            }),
+    };
 }
 
-test('StubWorker 经真实 TCP + 加密序列化器双向回显', async (t) => {
-    const echo = await startEchoServer();
-    t.after(() => echo.close());
-
-    const brokerPort = await getFreePort();
-    const serverCfg = makeServerConfig({ listenPort: brokerPort, workMode: 'tcp' });
-    const broker = new Server(serverCfg as any);
-    broker.bootstrap();
-
-    const tsport = await new Promise<ReturnType<typeof createTcpTransport>>((resolve, reject) => {
-        let transport: ReturnType<typeof createTcpTransport>;
-        transport = createTcpTransport({ host: '127.0.0.1', port: brokerPort }, () => resolve(transport));
-        (transport.conn as net.Socket).once('error', reject);
+async function connectClientSession(port: number): Promise<Session> {
+    const socket: net.Socket = await new Promise((resolve, reject) => {
+        const s = net.connect(port, '127.0.0.1', () => resolve(s));
+        s.once('error', reject);
     });
-    const clientStub = new StubWorker(tsport, makeEncryptedSerializer(TEST_PASSWORD, TEST_METHOD));
+    const secure = await SecureConn.clientSecure(socket, TEST_METHOD, TEST_PASSWORD);
+    return new Session(secure, false);
+}
 
-    const addr = buildSocks5Addr('127.0.0.1', echo.port);
-    const cs = clientStub.startStream(addr);
-    cs.on('error', () => {});
+test('SecureConn + yamux Session 经真实 TCP 双向回显', async (t) => {
+    const srv = await startTunnelServer();
+    t.after(() => srv.close());
 
-    await new Promise<void>((resolve, reject) => {
-        clientStub.once('stream', resolve as any);
-        clientStub.once('error', reject);
-        setTimeout(() => reject(new Error('stream ready timeout')), 5000);
-    });
+    const sess = await connectClientSession(srv.port);
+    const stream = await sess.openStream(buildSocks5Addr('127.0.0.1', 8080));
 
     const payload = crypto.randomBytes(64 * 1024);
     const recv = await new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
-        cs.on('data', (d: Buffer) => chunks.push(d));
-        cs.on('end', () => resolve(Buffer.concat(chunks)));
-        cs.on('error', reject);
-        cs.end(payload);
+        stream.on('data', (d: Buffer) => chunks.push(d));
+        stream.on('end', () => resolve(Buffer.concat(chunks)));
+        stream.on('error', reject);
+        stream.end(payload);
     });
 
     assert.ok(recv.equals(payload));
-    clientStub.close();
-    await closeNetServer((broker as any)._server);
+    sess.close();
 });
 
-test('加密 StubWorker loopback 多路复用两条流互不干扰', async () => {
-    const { client, server } = setupStubPair({ encrypted: true });
+test('yamux Session 多路复用两条流互不干扰', async (t) => {
+    const srv = await startTunnelServer();
+    t.after(() => srv.close());
 
-    server.on('stream', (stream: any, addr: Buffer) => {
-        server.setReady(stream);
-        const port = addr.readUInt16BE(addr.length - 2);
-        stream.on('data', () => stream.write(Buffer.from(`p${port}`)));
-        stream.on('end', () => stream.end());
-        stream.on('error', () => {});
-    });
+    const sess = await connectClientSession(srv.port);
 
-    async function openStream(port: number): Promise<string> {
-        const addr = buildSocks5Addr('127.0.0.1', port);
-        const cs = client.startStream(addr);
-        cs.on('error', () => {});
-        await new Promise<void>((resolve) => client.once('stream', resolve as any));
+    async function roundtrip(port: number, msg: string): Promise<string> {
+        const stream = await sess.openStream(buildSocks5Addr('127.0.0.1', port));
         return new Promise<string>((resolve, reject) => {
             const chunks: Buffer[] = [];
-            cs.on('data', (d: Buffer) => chunks.push(d));
-            cs.on('end', () => resolve(Buffer.concat(chunks).toString()));
-            cs.on('error', reject);
-            cs.end(Buffer.from('x'));
+            stream.on('data', (d: Buffer) => chunks.push(d));
+            stream.on('end', () => resolve(Buffer.concat(chunks).toString()));
+            stream.on('error', reject);
+            stream.end(Buffer.from(msg));
         });
     }
 
-    const [a, b] = await Promise.all([openStream(8080), openStream(9090)]);
-    assert.strictEqual(a, 'p8080');
-    assert.strictEqual(b, 'p9090');
-    client.close();
-    server.close();
+    const [a, b] = await Promise.all([roundtrip(8080, 'hello-8080'), roundtrip(9090, 'hello-9090')]);
+    assert.strictEqual(a, 'hello-8080');
+    assert.strictEqual(b, 'hello-9090');
+    sess.close();
 });

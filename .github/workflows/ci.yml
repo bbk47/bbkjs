@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    name: typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  stress:
+    name: stress + leak gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # 全载体 × (TCP+UDP) 并发压测，并开启基于活跃句柄增长的泄漏门禁。
+      # 句柄随往返次数线性增长即判定为资源泄漏（如 UDP 关联拆除回潮），CI 直接失败。
+      - name: stress soak with leak gate
+        run: npm run test:stress
+        env:
+          STRESS_DURATION_MS: '6000'
+          STRESS_CONCURRENCY: '24'
+          STRESS_ASSERT_LEAK: '1'

@@ -36,7 +36,10 @@ export async function startBbkServer(config: Record<string, unknown>) {
     return {
         app,
         port: config.listenPort as number,
-        close: () => closeNetServer((app as any)._server),
+        close: async () => {
+            (app as any).close?.();
+            await closeNetServer((app as any)._server);
+        },
     };
 }
 
@@ -50,7 +53,7 @@ export async function startBbkClient(config: Record<string, unknown>) {
         app,
         port: config.listenPort as number,
         close: async () => {
-            if ((app as any)._stubclient) (app as any)._stubclient.close();
+            (app as any).close?.();
             const servers: net.Server[] = (app as any)._proxyServers ?? [];
             await Promise.all(servers.map((s) => closeNetServer(s)));
         },

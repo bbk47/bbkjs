@@ -1,30 +1,25 @@
-import * as protocol from '../../src/protocol';
-import serializerFn from '../../src/serializer';
-import StubWorker from '../../src/stub';
-import { createLoopback } from './loopback';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export const ADDR = Buffer.from([0x01, 127, 0, 0, 1, 0x00, 0x50]);
 
 export const TEST_PASSWORD = 'test-pass';
 export const TEST_METHOD = 'aes-256-cfb';
 
-export function makePlainSerializer() {
-    return {
-        serialize: (frame: protocol.Frame) => protocol.encode(frame),
-        derialize: (buf: Buffer) => protocol.decode(buf),
-    };
-}
+// 仓库自带的自签证书（已过期），仅用于本地 tls/h2 载体测试；
+// 拨号侧统一 rejectUnauthorized:false，证书有效期不影响握手。
+const CERT_DIR = path.join(__dirname, '../../examples/tls/certs');
 
-export function makeEncryptedSerializer(password = TEST_PASSWORD, method = TEST_METHOD) {
-    return serializerFn(password, method);
-}
+let sslCache: { sslKey: string; sslCrt: string } | undefined;
 
-export function setupStubPair({ encrypted = false } = {}) {
-    const [ta, tb] = createLoopback();
-    const serializer = encrypted ? makeEncryptedSerializer() : makePlainSerializer();
-    const client = new StubWorker(ta as any, serializer);
-    const server = new StubWorker(tb as any, serializer);
-    return { client, server, ta, tb };
+export function loadTestTls(): { sslKey: string; sslCrt: string } {
+    if (!sslCache) {
+        sslCache = {
+            sslKey: fs.readFileSync(path.join(CERT_DIR, 'key.pem'), 'utf8'),
+            sslCrt: fs.readFileSync(path.join(CERT_DIR, 'cert.pem'), 'utf8'),
+        };
+    }
+    return sslCache;
 }
 
 export function makeServerConfig(overrides: Record<string, unknown> = {}) {
@@ -52,12 +47,12 @@ export function makeClientConfig(overrides: Record<string, unknown> & { tunnelOp
             listenAddr: '127.0.0.1',
             listenPort: 0,
             logLevel: 'error',
-            ping: false,
             tunnelOpts: Object.assign(
                 {
                     protocol: 'tcp',
                     host: '127.0.0.1',
                     port: 0,
+                    path: '/tunnel',
                     method: TEST_METHOD,
                     password: TEST_PASSWORD,
                 },

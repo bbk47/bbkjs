@@ -29,6 +29,7 @@ await esbuild.build({
 
 // 确保产物可执行
 import { chmodSync } from 'fs';
-chmodSync(join(__dirname, 'bin/bbk.js'), 0o755);
+const outfile = join(__dirname, 'dist/bbk.min.js');
+chmodSync(outfile, 0o755);
 
-console.log(`Build complete: bin/bbk.js (v${pkg.version} - ${buildTime})`);
+console.log(`Build complete: dist/bbk.min.js (v${pkg.version} - ${buildTime})`);
